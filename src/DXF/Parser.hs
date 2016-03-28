@@ -2,6 +2,7 @@
 module DXF.Parser (readDXF,module DXF.Types  ) where
 
 import DXF.Types
+import Control.Applicative
 import qualified Data.Map as M
 
 import Debug.Trace
@@ -34,7 +35,7 @@ dxf = do
   h <- section "HEADER" >>= parseHeaderVars
   c <- section "CLASSES" >>= parseHeader
   t <- section "TABLES" >>= parseHeader
-  b <- section "BLOCKS" >>= parseHeader
+  b <- section "BLOCKS" >>= parseBlocks
   e <- section "ENTITIES" >>= parseEntity
   o <- section "OBJECTS" >>= parseHeader
   a <- section "ACDSDATA" >>= parseHeader
@@ -42,15 +43,12 @@ dxf = do
 
 line = manyTill A.anyChar endOfLine
 icode i = readCode i >> line
+icode' i = readCode' i >> line
 
 parseEnt = do
   t <- icode "0"
-  h <- icode "5"
-  p <- icode "330"
-  entg <- icode "100"
-  l <- icode "8"
-  ente <- icode "100"
-  Entity t (fst $ head$  readHex h) p l entg ente <$> case t of
+  o <- parseObject
+  Entity t o <$> case t of
     "LWPOLYLINE" -> do
       n <- icode "90"
       b <- icode "70"
@@ -69,17 +67,28 @@ parseEnt = do
       bz <- icode "31"
       return (LINE (read <$> V3 ax ay az) (read <$> V3 bx by bz))
     "CIRCLE" -> do
-      readCode "10"
-      ax <- line
-      readCode "20"
-      ay <- line
-      readCode "30"
-      az <- line
-      readCode "40"
-      rz <- line
+      ax <- icode "10"
+      ay <- icode "20"
+      az <- icode "30"
+      rz <- icode "40"
       return (CIRCLE  (read <$> V3 ax ay az) (read rz))
+    "INSERT" -> do
+      n <- icode' "2"
+      ax <- icode' "10"
+      ay <- icode' "20"
+      az <- icode' "30"
+      sx <- mcode "41"
+      sy <- mcode "42"
+      sz <- mcode "43"
+      r <- mcode "50"
+      return (INSERT n (read <$> V3 ax ay az) (fmap read <$> liftA3 V3 sx sy sz) (read  <$> r))
+
+
+
+
     i -> error i
 
+mcode i =   (Just <$> icode' i) <|> (return Nothing)
 
 
 parseEntity :: [String] -> Parser [Entity]
@@ -92,6 +101,37 @@ readVar = do
   char '$'
   h <- line
   (h,) . M.fromList <$> manyTill ((,) <$> line <*> line) (readCode' "9")
+rerun t m = case parseOnly m (B.pack $ unlines t) of
+              Right r -> return r
+              Left e -> error e
+
+parseObject  = do
+  h <- icode "5"
+  p <- icode "330"
+  entg <- icode "100"
+  gc <- mcode "67"
+  l <- icode "8"
+  ente <- icode "100"
+  return (Object (fst $ head$  readHex h) p entg  gc l ente)
+
+
+
+parseBlocks t = rerun t $ do
+  many' (do
+    readCode' "0"
+    string "BLOCK"
+    o <-parseObject
+    n <- icode "2"
+    f <- icode "70"
+    ax <- icode "10"
+    ay <- icode "20"
+    az <- icode "30"
+    n <- icode "3"
+    r <- icode "1"
+    es <- manyTill parseEnt (readCode' "0" >> string "ENDBLK")
+    eo <- parseObject
+    return $ Block  o  n f (read <$> V3 ax ay az) r es eo)
+
 
 parseHeaderVars t= do
   case parseOnly (do

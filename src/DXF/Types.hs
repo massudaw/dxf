@@ -3,16 +3,35 @@ module DXF.Types where
 import Linear.V2
 import Linear.V3
 import Data.Map(Map)
+
 data Entity
   = Entity
   { etype :: String
-  , handler :: Int
-  , pointer :: String
-  , elayer :: String
-  , entityG :: String
-  , entityE :: String
+  , eref :: Object
   , evalue :: EntityTy
   }deriving (Show)
+
+data Object
+  = Object
+  { handle :: Int
+  , pointer :: String
+  , entg :: String
+  , groupcode :: Maybe String
+  , layer :: String
+  , entb :: String
+  }
+  deriving Show
+
+data Block
+  = Block
+  { block :: Object
+  , name :: String
+  , flag :: String
+  , position :: V3 Double
+  , xref :: String
+  , array :: [Entity]
+  , endblock :: Object
+  }deriving Show
 
 data Header
   = Header
@@ -34,6 +53,12 @@ data EntityTy
   { center :: V3 Double
   , radius :: Double
   }
+  | INSERT
+  { iblockname :: String
+  , iposition ::  V3 Double
+  , iscale :: Maybe (V3 Double)
+  , irotation :: Maybe Double
+  }
   deriving (Show)
 
 data DXF
@@ -41,7 +66,7 @@ data DXF
   { header ::  Header
   , classes :: [String]
   , tables ::  [String]
-  , blocks  :: [String]
+  , blocks  :: [Block]
   , entities:: [Entity]
   , objects :: [String]
   , acdsdata :: [String]

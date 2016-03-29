@@ -22,13 +22,13 @@ readCode' c = manyTill (char8 ' ') c >> endOfLine
 readCode c = manyTill anyChar (string c)  >> endOfLine
 
 main = do
-  fmap header <$> readDXF "PATH.DXF"
+  fmap entities<$> readDXF "PATH.DXF"
 readDXF f =   B.readFile f >>= return .   parseOnly dxf
 
 
 section :: B.ByteString  -> Parser [String]
 section n = do
-  readCode "0"  >> string "SECTION" >> endOfLine >> readCode "2" >> string n >> endOfLine
+  readCode' "0"  >> string "SECTION" >> endOfLine >> readCode "2" >> string n >> endOfLine
   manyTill line  (readCode' "0" >> string "ENDSEC" >> endOfLine)
 
 dxf = do
@@ -44,20 +44,34 @@ dxf = do
 line = manyTill A.anyChar endOfLine
 icode i = readCode i >> line
 icode' i = readCode' i >> line
+rcode' i = readCode' i >> read <$> line
 
 parseEnt = do
   t <- icode "0"
-  o <- parseObject
+  o <- traceShow t $ parseObject
   Entity t o <$> case t of
+    "TEXT" -> do
+      ax <- traceShow "text" $ icode' "10"
+      ay <- icode' "20"
+      az <- icode' "30"
+      h <- icode' "40"
+      t <- icode' "1"
+      r <- mcode "50"
+      aix <- mcode "210"
+      aiy <- mcode "220"
+      aiz <- mcode "230"
+      icode "100"
+      return (TEXT  (read <$> V3 ax ay az) (read h)  t (read  <$> r) (fmap read <$> liftA3 V3 aix aiy aiz))
     "LWPOLYLINE" -> do
-      n <- icode "90"
-      b <- icode "70"
-      w <- icode "43"
+      n <- icode' "90"
+      b <- icode' "70"
+      w <- icode' "43"
+      th <- fmap read <$>  mcode "38"
       m <- replicateM (read n) (do
-        x <- icode "10"
-        y <- icode "20"
-        return (read <$> V2 x  y))
-      return (LWPOLYLINE (if b /= "1" then True else False) (read w) m)
+        x <- rcode' "10"
+        y <- rcode' "20"
+        return (V2 x  y ))
+      return (LWPOLYLINE (if b /= "1" then True else False) (read w) th  m)
     "LINE" -> do
       ax <-icode "10"
       ay <-icode "20"
@@ -67,10 +81,10 @@ parseEnt = do
       bz <- icode "31"
       return (LINE (read <$> V3 ax ay az) (read <$> V3 bx by bz))
     "CIRCLE" -> do
-      ax <- icode "10"
-      ay <- icode "20"
-      az <- icode "30"
-      rz <- icode "40"
+      ax <- icode' "10"
+      ay <- icode' "20"
+      az <- icode' "30"
+      rz <- icode' "40"
       return (CIRCLE  (read <$> V3 ax ay az) (read rz))
     "INSERT" -> do
       n <- icode' "2"
@@ -81,10 +95,10 @@ parseEnt = do
       sy <- mcode "42"
       sz <- mcode "43"
       r <- mcode "50"
-      return (INSERT n (read <$> V3 ax ay az) (fmap read <$> liftA3 V3 sx sy sz) (read  <$> r))
-
-
-
+      aix <- mcode "210"
+      aiy <- mcode "220"
+      aiz <- mcode "230"
+      return (INSERT n (read <$> V3 ax ay az) (fmap read <$> liftA3 V3 sx sy sz) (read  <$> r) (fmap read <$> liftA3 V3 aix aiy aiz))
 
     i -> error i
 
@@ -93,7 +107,7 @@ mcode i =   (Just <$> icode' i) <|> (return Nothing)
 
 parseEntity :: [String] -> Parser [Entity]
 parseEntity t= do
-  case parseOnly  (many1  parseEnt) (B.pack $ unlines t ) of
+  case parseOnly  (many1  parseEnt) (traceShowId $ B.pack $ unlines t ) of
     Right i -> return i
     Left  i -> error (i <> show t)
 

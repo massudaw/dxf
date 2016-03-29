@@ -88,13 +88,15 @@ writeEnt (Entity t ob  o ) = do
   icode "0" t
   writeObject ob
   case o of
-    LWPOLYLINE b w m-> do
+    LWPOLYLINE b w th m-> do
       scode "90" (length m)
       icode "70" (if b then "1" else "330")
       icode "43" (show w)
-      mapM (\(V2 x y) -> do
+      traverse (scode "38")  th
+      mapM (\(V2 x y ) -> do
         scode "10" x
-        scode "20" y) m
+        scode "20" y
+        ) m
       return ()
     LINE (V3 ax ay az) (V3 bx by bz) -> do
       scode "10" ax
@@ -110,7 +112,7 @@ writeEnt (Entity t ob  o ) = do
       scode "30" az
       scode "40" rz
       return ()
-    INSERT n (V3 ax ay az) s  r -> do
+    INSERT n (V3 ax ay az) s  r  a-> do
       icode "2" n
       scode "10" ax
       scode "20" ay
@@ -120,7 +122,25 @@ writeEnt (Entity t ob  o ) = do
         scode "42" sy
         scode "43" sz) s
       traverse (scode "50") r
+      traverse (\(V3 sx sy sz) -> do
+        scode "210" sx
+        scode "220" sy
+        scode "230" sz) a
       return ()
+    TEXT (V3 ax ay az) h n  r  a-> do
+      scode "10" ax
+      scode "20" ay
+      scode "30" az
+      scode "40" h
+      icode "1" n
+      traverse (scode "50") r
+      traverse (\(V3 sx sy sz) -> do
+        scode "210" sx
+        scode "220" sy
+        scode "230" sz) a
+      icode "100" "AcDbText"
+      return ()
+
     i -> error (show i)
 
 

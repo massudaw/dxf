@@ -43,11 +43,19 @@ data EntityTy
   = LWPOLYLINE
   { open :: Bool
   , width :: Double
+  , thickness :: Maybe Double
   , vertices :: [V2 Double]
   }
   | LINE
   { origin :: V3 Double
   , target :: V3 Double
+  }
+  | TEXT
+  { origin :: V3 Double
+  , theigth :: Double
+  , tvalue :: String
+  , trotation :: Maybe Double
+  , taxis :: Maybe (V3 Double)
   }
   | CIRCLE
   { center :: V3 Double
@@ -58,6 +66,7 @@ data EntityTy
   , iposition ::  V3 Double
   , iscale :: Maybe (V3 Double)
   , irotation :: Maybe Double
+  , irotationAxis :: Maybe (V3 Double)
   }
   deriving (Show)
 

@@ -70,7 +70,8 @@ parseEnt = do
       m <- replicateM (read n) (do
         x <- rcode' "10"
         y <- rcode' "20"
-        return (V2 x  y ))
+        w <- fmap read <$> mcode "42"
+        return (V2 x  y ,w))
       return (LWPOLYLINE (if b /= "1" then True else False) (read w) th  m)
     "LINE" -> do
       ax <-icode "10"
@@ -80,6 +81,21 @@ parseEnt = do
       by <- icode "21"
       bz <- icode "31"
       return (LINE (read <$> V3 ax ay az) (read <$> V3 bx by bz))
+    "ATTRIB" -> do
+
+      ax <- icode' "10"
+      ay <- icode' "20"
+      az <- icode' "30"
+      rz <- icode' "40"
+      v <- icode' "1"
+      rw <- mcode "41"
+      sn <- mcode "7"
+      scm <- icode' "100"
+      scm2 <- mcode "280"
+      v3 <- mcode "2"
+      l <- mcode "70"
+      v2 <- mcode "280"
+      return (ATTRIB (read <$> V3 ax ay az) (read rz) (v) (read <$> rw) (sn) scm scm2 v3 (read <$> l) v2 )
     "CIRCLE" -> do
       ax <- icode' "10"
       ay <- icode' "20"
@@ -87,19 +103,34 @@ parseEnt = do
       rz <- icode' "40"
       return (CIRCLE  (read <$> V3 ax ay az) (read rz))
     "INSERT" -> do
-      n <- icode' "2"
-      ax <- icode' "10"
-      ay <- icode' "20"
-      az <- icode' "30"
-      sx <- mcode "41"
-      sy <- mcode "42"
-      sz <- mcode "43"
-      r <- mcode "50"
-      aix <- mcode "210"
-      aiy <- mcode "220"
-      aiz <- mcode "230"
-      return (INSERT n (read <$> V3 ax ay az) (fmap read <$> liftA3 V3 sx sy sz) (read  <$> r) (fmap read <$> liftA3 V3 aix aiy aiz))
+      mf <- mcode "66"
+      let ins =  do
+            n <- icode' "2"
+            ax <- icode' "10"
+            ay <- icode' "20"
+            az <- icode' "30"
+            sx <- mcode "41"
+            sy <- mcode "42"
+            sz <- mcode "43"
+            r <- mcode "50"
+            aix <- mcode "210"
+            aiy <- mcode "220"
+            aiz <- mcode "230"
+            return (INSERT n (read <$> V3 ax ay az) (fmap read <$> liftA3 V3 sx sy sz) (read  <$> r) (fmap read <$> liftA3 V3 aix aiy aiz))
+      case traceShowId . read <$>  mf of
+        Just 1 -> do
+             v <- ins
+             l <- manyTill parseEnt (readCode' "0" >> string "SEQEND" >> endOfLine)
+             o <- parseObject
+             return $ v (l <> [Entity "SEQEND" o SEQEND])
+        Just 0 -> do
+              v <- ins
+              return (v [])
+        Nothing -> do
+              v <- ins
+              return (v [])
 
+    "SEQEND" -> return SEQEND
     i -> error i
 
 mcode i =   (Just <$> icode' i) <|> (return Nothing)
@@ -125,8 +156,12 @@ parseObject  = do
   entg <- icode "100"
   gc <- mcode "67"
   l <- icode "8"
-  ente <- icode "100"
-  return (Object (fst $ head$  readHex h) p entg  gc l ente)
+  lt <- mcode "6"
+  bc <- mcode "62"
+  lw <- mcode "370"
+  eps <- mcode "48"
+  ente <- mcode "100"
+  return (Object (fst $ head$  readHex h) p entg  gc l lt bc lw eps ente)
 
 
 

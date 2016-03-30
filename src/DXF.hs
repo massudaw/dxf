@@ -7,7 +7,7 @@ import DXF.Types
 
 idDXF = do
   Right v <- readDXF "PATH.DXF"
-  print (objects v)
+  print (entities v)
   writeDXF "PATHW.DXF" v
 
 

@@ -62,13 +62,17 @@ writeHeader (Header h i) = do
   icode "5" (showHex i "" )
   mapM writeField (M.toList h)
 
-writeObject (Object h p  entg gc l ente) = do
+writeObject (Object h p  entg gc l lt lc lw eps ente) = do
   icode "5" (showHex h "")
   icode "330" p
   icode "100" entg
   traverse (icode "67") gc
   icode "8" l
-  icode "100"  ente
+  traverse (icode "6") lt
+  traverse (icode "62") lc
+  traverse (icode "370") lw
+  traverse (icode "48") eps
+  traverse (icode "100")  ente
 
 writeBlock (Block b n f p@(V3 ax ay az) r es o) = do
   icode "0" "BLOCK"
@@ -93,9 +97,10 @@ writeEnt (Entity t ob  o ) = do
       icode "70" (if b then "1" else "330")
       icode "43" (show w)
       traverse (scode "38")  th
-      mapM (\(V2 x y ) -> do
+      mapM (\(V2 x y ,w) -> do
         scode "10" x
         scode "20" y
+        traverse (scode"42") w
         ) m
       return ()
     LINE (V3 ax ay az) (V3 bx by bz) -> do
@@ -112,7 +117,21 @@ writeEnt (Entity t ob  o ) = do
       scode "30" az
       scode "40" rz
       return ()
-    INSERT n (V3 ax ay az) s  r  a-> do
+    ATTRIB a b c d e f g h i j -> do
+      v3code a
+      scode "40" b
+      icode "1" c
+      mcode "41" (show <$> d)
+      traverse (icode "7") e
+      icode "100" f
+      mcode "280" g
+      mcode "2" h
+      mcode "70" (show <$> i)
+      mcode "280" j
+      return ()
+
+    INSERT n (V3 ax ay az) s  r  a attrs -> do
+      when (not $ null attrs) (icode "66" "1")
       icode "2" n
       scode "10" ax
       scode "20" ay
@@ -126,6 +145,7 @@ writeEnt (Entity t ob  o ) = do
         scode "210" sx
         scode "220" sy
         scode "230" sz) a
+      mapM writeEnt attrs
       return ()
     TEXT (V3 ax ay az) h n  r  a-> do
       scode "10" ax
@@ -141,9 +161,16 @@ writeEnt (Entity t ob  o ) = do
       icode "100" "AcDbText"
       return ()
 
+    SEQEND -> return ()
     i -> error (show i)
 
 
+v3code (V3 x y z) = do
+ scode "10" x
+ scode "20" y
+ scode "30" z
+
+mcode i v= traverse (icode i) v
 
 --writeEntity :: [Entity] -> Writer [String] [()]
 writeEntity t =  writeEnt t

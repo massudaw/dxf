@@ -18,7 +18,11 @@ data Object
   , entg :: String
   , groupcode :: Maybe String
   , layer :: String
-  , entb :: String
+  , linetype :: Maybe String
+  , linecolor :: Maybe String
+  , lineweight :: Maybe String
+  , eps :: Maybe String
+  , entb :: Maybe String
   }
   deriving Show
 
@@ -44,7 +48,7 @@ data EntityTy
   { open :: Bool
   , width :: Double
   , thickness :: Maybe Double
-  , vertices :: [V2 Double]
+  , vertices :: [(V2 Double,Maybe Double)]
   }
   | LINE
   { origin :: V3 Double
@@ -67,6 +71,20 @@ data EntityTy
   , iscale :: Maybe (V3 Double)
   , irotation :: Maybe Double
   , irotationAxis :: Maybe (V3 Double)
+  , attribs :: [Entity]
+  }
+  | SEQEND
+  | ATTRIB
+  { aposition :: V3 Double
+  , aheight :: Double
+  , avalue :: String
+  , relativescale :: Maybe Double
+  , textstyle :: Maybe String
+  , eclass :: String
+  , version :: Maybe String
+  , attrstring :: Maybe String
+  , attrflags :: Maybe Int
+  , lock :: Maybe String
   }
   deriving (Show)
 

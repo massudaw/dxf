@@ -60,6 +60,8 @@ data EntityTy
   , width :: Double
   , thickness :: Maybe Double
   , vertices :: [(V2 Double,Maybe Double)]
+  , rotation :: Maybe (V3 Double )
+  , axis :: Maybe (V3 Double )
   }
   | LINE
   { origin :: V3 Double

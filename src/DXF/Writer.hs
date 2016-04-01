@@ -92,9 +92,9 @@ writeEnt (Entity t ob  o ) = do
   icode "0" t
   writeObject ob
   case o of
-    LWPOLYLINE b w th m-> do
+    LWPOLYLINE b w th m r ax-> do
       scode "90" (length m)
-      icode "70" (if b then "1" else "330")
+      icode "70" (if b then "1" else "0")
       icode "43" (show w)
       traverse (scode "38")  th
       mapM (\(V2 x y ,w) -> do
@@ -102,6 +102,8 @@ writeEnt (Entity t ob  o ) = do
         scode "20" y
         traverse (scode"42") w
         ) m
+      traverse (scode "50") r
+      traverse extrusion ax
       return ()
     LINE (V3 ax ay az) (V3 bx by bz) -> do
       scode "10" ax
@@ -174,6 +176,11 @@ writeEnt (Entity t ob  o ) = do
       return()
 
     i -> error (show i)
+
+extrusion (V3 x y z) = do
+ scode "210" x
+ scode "220" y
+ scode "230" z
 
 
 v3code (V3 x y z) = do

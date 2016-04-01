@@ -52,6 +52,9 @@ v3Code =  do
     az <- rcode' "30"
     return $ V3 ax ay az
 
+extrusion =  do
+    v <-liftA3 V3 <$>  mcode "210" <*> mcode "220" <*> mcode "230"
+    return  (fmap read <$> v )
 parseEnt = do
   t <- icode "0"
   o <- parseObject
@@ -78,7 +81,9 @@ parseEnt = do
         y <- rcode' "20"
         w <- fmap read <$> mcode "42"
         return (V2 x  y ,w))
-      return (LWPOLYLINE (if b /= "1" then True else False) (read w) th  m)
+      r <- mcode "50"
+      v <-  extrusion
+      return (LWPOLYLINE (if b /= "1" then True else False) (read w) th  m (read <$> r) v)
     "LINE" -> do
       ax <-icode "10"
       ay <-icode "20"

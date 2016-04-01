@@ -162,6 +162,17 @@ writeEnt (Entity t ob  o ) = do
       return ()
 
     SEQEND -> return ()
+    VERTEX s p f  -> do
+      icode "100" s
+      v3code p
+      scode "70" f
+      return()
+    POLYLINE p f v -> do
+      v3code p
+      scode "70" f
+      mapM writeEnt v
+      return()
+
     i -> error (show i)
 
 

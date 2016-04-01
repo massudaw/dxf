@@ -44,7 +44,18 @@ data Header
   }deriving Show
 
 data EntityTy
-  = LWPOLYLINE
+  = POLYLINE
+  {
+   pposition :: V3 Double
+  , pflag :: Int
+  , pvertices :: [Entity]
+  }
+  | VERTEX
+  { vtag :: String
+  ,vposition :: V3 Double
+  , vflag :: Int
+  }
+  | LWPOLYLINE
   { open :: Bool
   , width :: Double
   , thickness :: Maybe Double

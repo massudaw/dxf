@@ -46,12 +46,18 @@ icode i = readCode i >> line
 icode' i = readCode' i >> line
 rcode' i = readCode' i >> read <$> line
 
+v3Code =  do
+    ax <- rcode' "10"
+    ay <- rcode' "20"
+    az <- rcode' "30"
+    return $ V3 ax ay az
+
 parseEnt = do
   t <- icode "0"
-  o <- traceShow t $ parseObject
+  o <- parseObject
   Entity t o <$> case t of
     "TEXT" -> do
-      ax <- traceShow "text" $ icode' "10"
+      ax <-  icode' "10"
       ay <- icode' "20"
       az <- icode' "30"
       h <- icode' "40"
@@ -102,6 +108,19 @@ parseEnt = do
       az <- icode' "30"
       rz <- icode' "40"
       return (CIRCLE  (read <$> V3 ax ay az) (read rz))
+    "POLYLINE" -> do
+      mf <- mcode "66"
+      v <- v3Code
+      f <- rcode' "70"
+      l <- manyTill parseEnt (readCode' "0" >> string "SEQEND" >> endOfLine)
+      o <- parseObject
+      return $ POLYLINE v f (l <> [Entity "SEQEND" o SEQEND])
+    "VERTEX" -> do
+      t <- icode' "100"
+      v <- v3Code
+      f <- rcode' "70"
+      return $ VERTEX t v f
+    "SEQEND" -> return SEQEND
     "INSERT" -> do
       mf <- mcode "66"
       let ins =  do
@@ -117,7 +136,7 @@ parseEnt = do
             aiy <- mcode "220"
             aiz <- mcode "230"
             return (INSERT n (read <$> V3 ax ay az) (fmap read <$> liftA3 V3 sx sy sz) (read  <$> r) (fmap read <$> liftA3 V3 aix aiy aiz))
-      case traceShowId . read <$>  mf of
+      case read <$>  mf of
         Just 1 -> do
              v <- ins
              l <- manyTill parseEnt (readCode' "0" >> string "SEQEND" >> endOfLine)
@@ -138,7 +157,7 @@ mcode i =   (Just <$> icode' i) <|> (return Nothing)
 
 parseEntity :: [String] -> Parser [Entity]
 parseEntity t= do
-  case parseOnly  (many1  parseEnt) (traceShowId $ B.pack $ unlines t ) of
+  case parseOnly  (many1  parseEnt) (B.pack $ unlines t ) of
     Right i -> return i
     Left  i -> error (i <> show t)
 

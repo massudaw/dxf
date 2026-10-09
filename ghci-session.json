@@ -5,9 +5,16 @@
   "summarize_jobs": 4,
   "targets": {
     "dxf": {
-      "units": ["lib:dxf"],
-      "watch": ["src"],
-      "modules": ["DXF"]
+      "units": [
+        "lib:dxf"
+      ],
+      "watch": [
+        "src"
+      ],
+      "modules": [
+        "DXF"
+      ]
     }
-  }
+  },
+  "cabal_args": "--repl-options=-fobject-code --repl-options=-O1 --repl-options=-fno-ignore-interface-pragmas"
 }

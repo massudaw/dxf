@@ -50,6 +50,11 @@ The goal is a complete DXF parser and printer, modelled on ezdxf, the main Pytho
 
 ## How to work
 
+The session loads the library COMPILED and optimised (`-fobject-code -O1`, set in `ghci-session.json`): an
+`eval` or a `bench` on the largest sample runs at the speed of the built library, so what the session
+measures is real. What is typed into `eval` itself is still interpreted: keep loops out of the expression
+and inside functions of the library (a small `DXF.Debug` module of measuring helpers is fine).
+
 The code is loaded in a warm GHCi session: `eval` answers in milliseconds, a file written is reloaded and
 its verdict comes back with the write. Use that rather than building by hand. Commit as the work goes, in
 steps that each build and pass, on the branch `full-parser`. Do not push.

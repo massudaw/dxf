@@ -6,6 +6,7 @@
 --   * @scan@:  only the tags, streamed and dropped (what the document parse pays for them)
 module Main (main) where
 
+import Control.DeepSeq (rnf)
 import Control.Exception (evaluate)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Builder as BB
@@ -20,7 +21,7 @@ timed name act = do
   t0 <- getMonotonicTime
   r <- act
   t1 <- getMonotonicTime
-  putStrLn (name ++ ": " ++ show (round ((t1 - t0) * 1000) :: Int) ++ " ms")
+  putStrLn (name ++ ": " ++ show (fromIntegral (round ((t1 - t0) * 10000) :: Int) / 10 :: Double) ++ " ms")
   return r
 
 main :: IO ()
@@ -33,6 +34,17 @@ main = do
       d <- timed "parse document" (evaluate (parseDXF bs) >>= either (ioError . userError . show) pure)
       out <- timed "print document" (evaluate (BL.length (documentBytes d)))
       putStrLn ("document bytes out: " ++ show out)
+    ["stages"] -> do   -- scan alone, then each section (sections are lazy: forced one at a time)
+      _ <- timed "scan tags (streamed)" (evaluate (length (snd (scanTags bs))))
+      let secs = docSections (parseDocument bs)
+      let go k = do   -- forcing the k-th cell of the list is what parses section k
+            n <- timed ("section " ++ show k) (evaluate (rnf (take k secs)) >> evaluate (length (take k secs)))
+            if n < k then pure () else do
+              putStrLn ("  = " ++ map (toEnum . fromEnum) (B.unpack (sectionName (secs !! (k - 1)))))
+              go (k + 1)
+      go (1 :: Int)
+      _ <- evaluate (rnf secs)
+      pure ()
     ["parseonly"] -> do
       _ <- timed "parse document" (evaluate (parseDXF bs) >>= either (ioError . userError . show) pure)
       pure ()

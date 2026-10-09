@@ -47,6 +47,28 @@ and unpacked points took residency from 100 to 41 MB.
 Small POLYLINE/TEXT files (CPQ-SPS...0005): print is dominated by `encodeWith` and `commonHead`
 (field-table folds allocate a closure per field), parse by the general decoder.
 
+## The small files: where the 14 ms go (profile, before the work on them)
+
+Both small samples are AC1009 drawings of POLYLINE / VERTEX / SEQEND (`tools/census.py`: VERTEX 69 % of
+the bytes, POLYLINE 20 %, SEQEND 6 %, LINE and TEXT 3 %; about 9,800 entities in 500 KB, 53 bytes per
+VERTEX).  `dxf-bench FILE stages` times the scan and then each section (forced whole, in turn):
+
+| stage (CPQ-SPS-ZZ-ZZ-DR-A-0005, ms) | time |
+|-------|-----:|
+| scan tags alone (streamed, dropped) | 1.3 |
+| HEADER | 0.0 |
+| TABLES | 0.3 |
+| BLOCKS | 0.3 |
+| ENTITIES | 13.5 |
+
+So the header, tables and blocks are a fixed cost of under 1 ms and the tag scan is 10 %: the time is the
+general entity path, 1.4 us per entity.  Allocation says the same: parsing the file allocates 71 MB (140
+bytes per input byte; f001, which is all LINE, 14 bytes per input byte).  Profile (`loop`, 30 parses,
+`-fprof-auto-top`, inflated; shares of time): the codec machinery `fFin`/`decodeWith`/`codec`/`lens`/`pt3`
+34 %, `splitTags` and `break` (cutting each entity's tags into common and own) 13 %, `scanFrom` building the
+tag list 9 %, `rnf` forcing the result 10 %, `decodeEntity`/`entityCodec`/`lift` 8 %, `shareCommon` 3 %.
+Fast decoders for the entities that fill these files (VERTEX, POLYLINE, SEQEND, TEXT, INSERT...) skip all of it.
+
 ## What is left
 
 * Fast decoders and writers for the other usual entities (VERTEX, LWPOLYLINE, TEXT, INSERT, CIRCLE, ARC):

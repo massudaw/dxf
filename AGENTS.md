@@ -42,7 +42,10 @@ The goal is a complete DXF parser and printer, modelled on ezdxf, the main Pytho
   to hold a parsed file in a small multiple of its size.
 - **Checked against the samples.** Every sample parses; every sample survives the round trip; what was
   found in each (entities by type, layers, blocks) is what ezdxf finds. A test suite in the cabal file does
-  this, and the session's `test` runs it (set `"test"` in `ghci-session.json` once it exists).
+  this, and the session's `test` runs it (set `"test"` in `ghci-session.json` once it exists). The session
+  reads `ghci-session.json` only when it starts: after editing it (the test, the units, the watched
+  directories), run `ghci-session stop dxf && ghci-session start dxf` with `sh` -- the `restart` tool keeps
+  the old configuration.
 - Modules stay under 250 lines each: one per concern (tags, each section, groups of entities).
 
 ## How to work

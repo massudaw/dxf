@@ -16,4 +16,14 @@ for version, name in (("R2018", "geometry"), ("R12", "geometry_r12")):
     msp.add_arc((2, 3, 1), 7.5, 270, 90, dxfattribs={"extrusion": (0, 0, -1), "lineweight": 50 if version != "R12" else -1})
     if version != "R12":
         msp.add_line((0, 0), (1, 1), dxfattribs={"true_color": 0xFF8000, "transparency": 0x02000040, "ltscale": 0.5, "invisible": 1})
+    msp.add_solid([(0, 0), (1, 0), (0, 1), (1, 1)], dxfattribs={"thickness": 1, "extrusion": (0, 0, -1)})
+    msp.add_solid([(0, 0), (1, 0), (0, 1)])
+    msp.add_trace([(2, 2), (3, 2), (2, 3), (3, 3)])
+    msp.add_3dface([(0, 0, 0), (1, 0, 0), (1, 1, 1), (0, 1, 1)], dxfattribs={"invisible_edges": 5})
+    msp.add_3dface([(0, 0, 0), (1, 0, 0), (1, 1, 1)])
+    if version != "R12":
+        msp.add_ellipse((1, 2, 3), major_axis=(4, 0, 0), ratio=0.5, start_param=0.5, end_param=4.0)
+        msp.add_ellipse((0, 0), major_axis=(0, 2, 0), ratio=1.0, dxfattribs={"extrusion": (0, 0, -1), "layer": "Walls"})
+        msp.add_ray((1, 1, 1), (0, 1, 0))
+        msp.add_xline((0, 0, 0), (1, 1, 0))
     doc.saveas(f"test/data/{name}.dxf")

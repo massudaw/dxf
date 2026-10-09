@@ -28,6 +28,11 @@ main = do
   bs <- timed "read" (B.readFile path >>= \b -> evaluate (B.length b) >> return b)
   case mode of
     ["doc"] -> document bs
+    ["dbl"] -> do
+      let xs = [250.24323977301532 + fromIntegral i * 1.0000123456789 | i <- [1 .. 674000 :: Int]] :: [Double]
+      _ <- timed "doubleDec x 674000" (evaluate (BL.length (BB.toLazyByteString (foldMap BB.doubleDec xs))))
+      _ <- timed "intDec x 674000" (evaluate (BL.length (BB.toLazyByteString (foldMap (BB.intDec . round) xs))))
+      pure ()
     ["scan"] -> do
       n <- timed "scan tags (streamed)" (evaluate (length (snd (scanTags bs))))
       putStrLn ("tags: " ++ show n)

@@ -8,6 +8,7 @@ import Check.Oracle (oracleFiles, oracleReset)
 import Data.List (isSuffixOf)
 import System.Directory (listDirectory)
 import qualified Check.Tags
+import qualified Check.Doubles
 import qualified Check.Document
 import qualified Check.Samples
 import qualified Check.Geometry
@@ -22,7 +23,7 @@ import qualified Check.Tables
 
 groups :: [(String, IO Result)]
 groups = concat
-  [ Check.Tags.checks, Check.Document.checks, Check.Samples.checks
+  [ Check.Tags.checks, Check.Doubles.checks, Check.Document.checks, Check.Samples.checks
   , Check.Geometry.checks
   , Check.Text.checks
   , Check.Poly.checks

@@ -7,13 +7,14 @@ module DXF.Tag.Out
   , tV3, tV2, tV3z, tagsFile
   , tMarker, tIfR2000, tIfR12
   , tMaybeS, tMaybeD, tMaybeI
-  , eol
+  , eol, doubleText
   ) where
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Builder as BB
 import DXF.Tag
 import DXF.Tag.Binary
+import DXF.Tag.Double
 import DXF.Vec
 
 type Out = Fmt -> BB.Builder
@@ -44,7 +45,7 @@ tS c s f
 tD :: Int -> Double -> Out
 tD c d f
   | fmtBinary f = binD (fmtR12 f) c d
-  | otherwise = txt f c (BB.doubleDec d)
+  | otherwise = txt f c (doubleText d)
 
 tI :: Int -> Int -> Out
 tI c i f

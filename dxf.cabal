@@ -14,6 +14,7 @@ library dxf-checks
   exposed-modules:  Check
                     Check.Util
                     Check.Tags
+                    Check.Doubles
                     Check.Document
                     Check.Oracle
                     Check.Group
@@ -63,6 +64,7 @@ library
                     DXF.Tag.Text
                     DXF.Tag.Binary
                     DXF.Tag.Out
+                    DXF.Tag.Double
                     DXF.Tag.Scan
                     DXF.Json
                     DXF.Codec
@@ -88,7 +90,7 @@ library
                     DXF.Entity.Tables
                     DXF.Entity.Vars
                     DXF.Entity.Block
-  build-depends:    base >=4.8 && <5, bytestring, containers, text, deepseq
+  build-depends:    base >=4.8 && <5, array, bytestring, containers, text, deepseq
   hs-source-dirs:   src
   default-language: Haskell2010
   ghc-options:      -O2 -Wall -Wno-name-shadowing -Wno-unused-do-bind

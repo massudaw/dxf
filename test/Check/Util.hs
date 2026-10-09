@@ -7,6 +7,7 @@ import Control.Exception (SomeException, evaluate, try)
 import Control.Monad (forM, filterM)
 import Data.List (isSuffixOf, sort)
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
+import System.Environment (lookupEnv)
 
 -- | Failure messages; none is a pass.
 type Result = [String]
@@ -14,13 +15,18 @@ type Result = [String]
 samples :: FilePath
 samples = "samples"
 
--- | The sample DXF files, sorted.
+-- | The sample DXF files, sorted.  With DXF_QUICK set (the session's
+-- routine check) every sixth one and the largest, f001.dxf.
 sampleFiles :: IO [FilePath]
 sampleFiles = do
   ok <- doesDirectoryExist samples
   if not ok then return [] else do
     names <- sort . filter (".dxf" `isSuffixOf`) <$> listDirectory samples
-    filterM doesFileExist (map ((samples ++ "/") ++) names)
+    quick <- lookupEnv "DXF_QUICK"
+    let pick = case quick of
+          Nothing -> names
+          Just _ -> [n | (i, n) <- zip [0 :: Int ..] names, i `mod` 8 == 3, n /= "f001.dxf", take 3 n /= "3CG"]
+    filterM doesFileExist (map ((samples ++ "/") ++) pick)
 
 failIf :: Bool -> String -> Result
 failIf c msg = [msg | c]

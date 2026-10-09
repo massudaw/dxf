@@ -1,4 +1,5 @@
--- | Times the stages on one file: dxf-bench FILE [+RTS -s]
+{-# OPTIONS_GHC -fno-full-laziness #-}
+-- | Times the stages on one file: dxf-bench FILE [doc] [+RTS -s]  (doc: only the document stages)
 module Main (main) where
 
 import Control.Exception (evaluate)
@@ -19,10 +20,20 @@ timed name act = do
 
 main :: IO ()
 main = do
-  [path] <- getArgs
+  (path : mode) <- getArgs
   bs <- timed "read" (B.readFile path >>= \b -> evaluate (B.length b) >> return b)
-  let (fmt, ts) = scanTags bs
-  n <- timed "scan tags" (evaluate (length ts))
-  putStrLn ("tags: " ++ show n)
-  len <- timed "print tags" (evaluate (BL.length (BB.toLazyByteString (tTags ts fmt))))
-  putStrLn ("bytes in/out: " ++ show (B.length bs) ++ " / " ++ show len)
+  case mode of
+    ["doc"] -> pure ()
+    _ -> do
+      let (fmt, ts) = scanTags bs
+      n <- timed "scan tags" (evaluate (length ts))
+      putStrLn ("tags: " ++ show n)
+      len <- timed "print tags" (evaluate (BL.length (BB.toLazyByteString (tTags ts fmt))))
+      putStrLn ("bytes in/out: " ++ show (B.length bs) ++ " / " ++ show len)
+  d <- timed "parse document" (evaluate (parseDXF bs) >>= either (ioError . userError . show) pure)
+  out <- timed "print document" (evaluate (BL.length (documentBytes d)))
+  putStrLn ("document bytes out: " ++ show out)
+  let printed = BL.toStrict (documentBytes d)
+  _ <- evaluate (B.length printed)
+  d2 <- timed "parse printed" (evaluate (parseDXF printed) >>= either (ioError . userError . show) pure)
+  putStrLn ("stable: " ++ show (d == d2))

@@ -1,0 +1,58 @@
+PERF.md
+  h_fd5809635b36a3 1-16
+app/Bench.hs
+  h_fd5809635b36a3 1-28
+dxf.cabal
+  h_fd5809635b36a3 2-3,10-26,29-41
+ghci-session.json
+  h_fd5809635b36a3 9-10,13-14,17-22
+src/DXF.hs
+  h_fd5809635b36a3 1-15
+src/DXF/Encoding.hs
+  h_fd5809635b36a3 1-68
+src/DXF/Number.hs
+  h_fd5809635b36a3 1-159
+src/DXF/Tag.hs
+  h_fd5809635b36a3 1-107
+src/DXF/Tag/Binary.hs
+  h_fd5809635b36a3 1-118
+src/DXF/Tag/Out.hs
+  h_fd5809635b36a3 1-102
+src/DXF/Tag/Scan.hs
+  h_fd5809635b36a3 1-16
+src/DXF/Tag/Text.hs
+  h_fd5809635b36a3 1-62
+src/DXF/Vec.hs
+  h_fd5809635b36a3 1-24
+test/Check.hs
+  h_fd5809635b36a3 1-18
+test/Check/Tags.hs
+  h_fd5809635b36a3 1-83
+test/Check/Util.hs
+  h_fd5809635b36a3 1-54
+test/Main.hs
+  h_fd5809635b36a3 1-6
+test/data/r12.txt.dxf
+  h_fd5809635b36a3 1-8058
+test/data/r2007.txt.dxf
+  h_fd5809635b36a3 1-9230
+test/data/r2018.txt.dxf
+  h_fd5809635b36a3 1-3096
+tools/genbin.py
+  h_fd5809635b36a3 1-5
+tools/perf_ezdxf.py
+  h_fd5809635b36a3 1-6
+tools/survey.py
+  h_fd5809635b36a3 1-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1b5c7df451438ede620975583a078a1b08201a73",
+  "prompts": {},
+  "humans": {
+    "h_fd5809635b36a3": {
+      "author": "Wesley Massuda <wesley.massuda@gmail.com>"
+    }
+  }
+}

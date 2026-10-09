@@ -20,6 +20,10 @@ from ezdxf.lldxf.encoding import decode_dxf_unicode
 from ezdxf.math import Vec2, Vec3
 
 IGNORE = {"handle", "owner"}  # ezdxf invents these for files that have none
+# attributes ezdxf adds when it loads (from handles, or defaults for new table entries)
+SYNTHESISED = {("BLOCK_RECORD", "layout"), ("LAYER", "material_handle"), ("LAYER", "plotstyle_handle"), ("LAYER", "plot")} | {
+    (t, "paperspace") for t in ("VERTEX", "SEQEND", "ATTRIB")} | {
+    ("DIMSTYLE", n) for n in ("dimblk", "dimblk1", "dimblk2", "dimldrblk", "dimtxsty", "dimltype", "dimltex1", "dimltex2")}
 # header variables ezdxf sets itself when it loads a file
 HEADER_IGNORE = {"$TDCREATE", "$TDUCREATE", "$TDUPDATE", "$TDUUPDATE", "$FINGERPRINTGUID", "$VERSIONGUID", "$ACADMAINTVER"}
 TOL = 1e-9
@@ -127,7 +131,7 @@ def compare_entity(rep, where, ours, theirs, enc):
         if k in oa:
             if k != "owner" and not same(oa[k], v, enc):
                 rep.bad(f"{where} {t}.{k}: ours {oa[k]!r} ezdxf {v!r}")
-        elif k not in IGNORE:
+        elif k not in IGNORE and (t, k) not in SYNTHESISED:
             rep.missing[(t, k)] += 1
     ok = ours.get("kids", [])
     tk = kids_of(theirs)
@@ -221,6 +225,8 @@ def main():
             mine_by[o["attribs"].get("name", "")].append(o)
         for n in set(theirs) | set(mine_by):
             a, b = mine_by.get(n, []), theirs.get(n, [])
+            if not a:
+                continue  # ezdxf adds entries a file lacks (layer Defpoints, ...)
             if len(a) != len(b):
                 rep.bad(f"table {tname}: {len(a)} entries named {n!r} but ezdxf has {len(b)}")
             else:

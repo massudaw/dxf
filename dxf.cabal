@@ -85,6 +85,7 @@ library
                     DXF.Entity.Objects
                     DXF.Entity.Settings
                     DXF.Entity.Tables
+                    DXF.Entity.Vars
                     DXF.Entity.Block
   build-depends:    base >=4.8 && <5, bytestring, containers, text, deepseq
   hs-source-dirs:   src

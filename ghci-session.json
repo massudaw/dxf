@@ -7,7 +7,7 @@
     "dxf": {
       "units": [
         "lib:dxf",
-        "test:dxf-test"
+        "lib:dxf-checks"
       ],
       "watch": [
         "src",

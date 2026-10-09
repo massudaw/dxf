@@ -5,9 +5,30 @@ import System.Exit (exitFailure)
 import Check.Util
 import qualified Check.Tags
 import qualified Check.Document
+import qualified Check.Samples
+import qualified Check.Geometry
+import qualified Check.Text
+import qualified Check.Poly
+import qualified Check.Hatch
+import qualified Check.Dimension
+import qualified Check.Misc
+import qualified Check.Objects
+import qualified Check.Settings
+import qualified Check.Tables
 
 groups :: [(String, IO Result)]
-groups = Check.Tags.checks ++ Check.Document.checks
+groups = concat
+  [ Check.Tags.checks, Check.Document.checks, Check.Samples.checks
+  , Check.Geometry.checks
+  , Check.Text.checks
+  , Check.Poly.checks
+  , Check.Hatch.checks
+  , Check.Dimension.checks
+  , Check.Misc.checks
+  , Check.Objects.checks
+  , Check.Settings.checks
+  , Check.Tables.checks
+  ]
 
 -- | Run the checks whose name contains the given text (all if empty).
 runWith :: String -> IO Bool

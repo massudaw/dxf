@@ -21,7 +21,7 @@ summary d = JO
   , ("header", JO [(hvName v, JA [JS x | Tag _ x <- hvTags v]) | v <- hdrVars (docHeader d)])
   , ("classes", JA (map classDump (docClasses d)))
   , ("tables", JO [(tabName t, JA (map dumpEntity (tabEntries t))) | t <- docTables d])
-  , ("blocks", JA [JO [("name", JS (blockName b)), ("entities", JA (map dumpEntity (blockEntities b)))] | b <- docBlocks d])
+  , ("blocks", JA [JO [("name", JS (blockName b)), ("head", dumpEntity (blockHead b)), ("entities", JA (map dumpEntity (blockEntities b)))] | b <- docBlocks d])
   , ("entities", JA (map dumpEntity (docEntities d)))
   , ("objects", JA (map dumpEntity (docObjects d)))
   ]

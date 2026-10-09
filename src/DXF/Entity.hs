@@ -84,7 +84,7 @@ dumpEntity :: Entity -> J
 dumpEntity (Entity ty c b kids) = JO
   [ ("type", JS ty)
   , ("attribs", JO (case b of
-       BRaw ts -> [("raw", JI (length ts))]
+       BRaw ts -> ("raw", JI (length ts)) : take 1 [("handle", JS v) | Tag 5 v <- ts]
        _ -> commonDump c ++ maybe [] (\ec -> ecDump ec b) (M.lookup ty registry)))
   , ("kids", JA (map dumpEntity kids)) ]
 

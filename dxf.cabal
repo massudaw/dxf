@@ -1,22 +1,51 @@
+cabal-version:       3.0
 name:                dxf
 version:             0.2.0.0
 synopsis:            A DXF parser and printer, modelled on ezdxf
-license:             BSD3
+license:             BSD-3-Clause
 license-file:        LICENSE
 author:              Wesley Sales Massuda
 maintainer:          wesley.massuda@gmail.com
 build-type:          Simple
-cabal-version:       >=1.10
 extra-source-files:  PERF.md
+
+library dxf-checks
+  visibility:       public
+  exposed-modules:  Check
+                    Check.Util
+                    Check.Tags
+                    Check.Document
+                    Check.Oracle
+                    Check.Group
+                    Check.Samples
+                    Check.Geometry
+                    Check.Text
+                    Check.Poly
+                    Check.Hatch
+                    Check.Dimension
+                    Check.Misc
+                    Check.Objects
+                    Check.Settings
+                    Check.Tables
+  hs-source-dirs:   test
+  build-depends:    base, bytestring, containers, text, directory, filepath, process, dxf
+  default-language: Haskell2010
+  ghc-options:      -O1
 
 test-suite dxf-test
   type:             exitcode-stdio-1.0
   main-is:          Main.hs
-  hs-source-dirs:   test
-  other-modules:    Check, Check.Util, Check.Tags, Check.Document
-  build-depends:    base, bytestring, containers, text, directory, process, dxf
+  hs-source-dirs:   test-main
+  build-depends:    base, dxf-checks
   default-language: Haskell2010
-  ghc-options:      -O1 -rtsopts
+  ghc-options:      -rtsopts
+
+executable dxf-summary
+  main-is:          Summary.hs
+  hs-source-dirs:   app
+  build-depends:    base, bytestring, dxf
+  default-language: Haskell2010
+  ghc-options:      -O2
 
 executable dxf-bench
   main-is:          Bench.hs

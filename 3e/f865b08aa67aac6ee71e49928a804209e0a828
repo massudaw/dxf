@@ -1,0 +1,22 @@
+src/DXF/Entity/Geometry.hs
+  h_fd5809635b36a3 4,19-24,57-84,120-155,162-167
+test/Check/Geometry.hs
+  h_fd5809635b36a3 9
+test/data/geometry.dxf
+  h_fd5809635b36a3 496,504,556,936,940,1732,1746,2268-2571,3562,3574,3578,3586
+test/data/geometry_r12.dxf
+  h_fd5809635b36a3 352,356,404,840,848,980,984,1158-1317
+tools/gen_geometry.py
+  h_fd5809635b36a3 19-28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3ef865b08aa67aac6ee71e49928a804209e0a828",
+  "prompts": {},
+  "humans": {
+    "h_fd5809635b36a3": {
+      "author": "Wesley Massuda <wesley.massuda@gmail.com>"
+    }
+  }
+}

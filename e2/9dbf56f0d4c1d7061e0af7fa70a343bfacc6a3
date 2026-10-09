@@ -1,0 +1,23 @@
+.gitignore
+  s_ee2f22f51d8bdb::t_8fe5c688e74c70 1,4-5,8-19
+AGENTS.md
+  s_ee2f22f51d8bdb::t_7f7d645a4f6ff8 65-72
+tools/gen_all.sh
+  s_ee2f22f51d8bdb::t_3537ecc0d041bf 1-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e29dbf56f0d4c1d7061e0af7fa70a343bfacc6a3",
+  "prompts": {},
+  "sessions": {
+    "s_ee2f22f51d8bdb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3863f128-df4e-5080-b64f-79e6e4bdb05e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Wesley Massuda <wesley.massuda@gmail.com>"
+    }
+  }
+}

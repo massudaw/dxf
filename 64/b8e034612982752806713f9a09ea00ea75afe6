@@ -1,0 +1,25 @@
+test/Check/Misc.hs
+  s_ee2f22f51d8bdb::t_8c1cc219290b0f 2,9-10
+test/data/misc.dxf
+  s_ee2f22f51d8bdb::t_fe645d20751ade 1-3890
+test/data/misc_r2010.dxf
+  s_ee2f22f51d8bdb::t_06cb9dfee18804 1-3114
+tools/gen_misc.py
+  s_ee2f22f51d8bdb::t_f58b77e9b8e15d 1-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "64b8e034612982752806713f9a09ea00ea75afe6",
+  "prompts": {},
+  "sessions": {
+    "s_ee2f22f51d8bdb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3863f128-df4e-5080-b64f-79e6e4bdb05e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Wesley Massuda <wesley.massuda@gmail.com>"
+    }
+  }
+}

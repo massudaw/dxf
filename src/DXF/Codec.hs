@@ -11,7 +11,7 @@ module DXF.Codec
   ( F (..), L, lens
   , dbl, mdbl, int, mint, str, mstr, flag
   , pt3, mpt3, pt2, mpt2, dbls, ints, strs, pts3, pts2
-  , mark, custom
+  , mark, markS, custom, under
   , Codec, codec, decodeWith, encodeWith, dumpWith
   , BodyCodec (..), entityCodec
   ) where
@@ -34,7 +34,7 @@ data F b = F
   , fWrite  :: b -> Out
   , fDump   :: b -> Maybe J
   , fFin    :: b -> b                       -- ^ after the last tag (lists are read reversed)
-  , fMarker :: Maybe B.ByteString           -- ^ a subclass marker this field writes
+  , fMarker :: Maybe (B.ByteString, b -> b) -- ^ a subclass marker this field writes; reading it applies the function
   }
 
 -- | A getter and a setter.
@@ -58,26 +58,30 @@ dbl n c l = simple n [c] (\_ v b -> (\d -> set l d b) <$> readDouble v) (tD c . 
 
 -- | An optional double.
 mdbl :: Name -> Int -> L b (Maybe Double) -> F b
-mdbl n c l = simple n [c] (\_ v b -> (\d -> set l (Just d) b) <$> readDouble v)
+mdbl n c l = simple n [c] (\_ v b -> unset l b >> (\d -> set l (Just d) b) <$> readDouble v)
   (tMaybeD c . get l) (fmap JD . get l)
 
 int :: Name -> Int -> L b Int -> F b
 int n c l = simple n [c] (\_ v b -> (\d -> set l d b) <$> readInt v) (tI c . get l) (Just . JI . get l)
 
 mint :: Name -> Int -> L b (Maybe Int) -> F b
-mint n c l = simple n [c] (\_ v b -> (\d -> set l (Just d) b) <$> readInt v) (tMaybeI c . get l) (fmap JI . get l)
+mint n c l = simple n [c] (\_ v b -> unset l b >> (\d -> set l (Just d) b) <$> readInt v) (tMaybeI c . get l) (fmap JI . get l)
 
 -- | A string, as the file's bytes.
 str :: Name -> Int -> L b B.ByteString -> F b
 str n c l = simple n [c] (\_ v b -> Just (set l v b)) (tS c . get l) (Just . JS . get l)
 
 mstr :: Name -> Int -> L b (Maybe B.ByteString) -> F b
-mstr n c l = simple n [c] (\_ v b -> Just (set l (Just v) b)) (tMaybeS c . get l) (fmap JS . get l)
+mstr n c l = simple n [c] (\_ v b -> unset l b >> Just (set l (Just v) b)) (tMaybeS c . get l) (fmap JS . get l)
 
 -- | An optional 0/1 flag.
 flag :: Name -> Int -> L b (Maybe Bool) -> F b
-flag n c l = simple n [c] (\_ v b -> (\d -> set l (Just (d /= 0)) b) <$> readInt v)
+flag n c l = simple n [c] (\_ v b -> unset l b >> (\d -> set l (Just (d /= 0)) b) <$> readInt v)
   (maybe mempty (tB c) . get l) (fmap (JI . fromEnum) . get l)
+
+-- | A 'Maybe' field that is still empty: a second tag for it is left alone.
+unset :: L b (Maybe a) -> b -> Maybe ()
+unset l b = maybe (Just ()) (const Nothing) (get l b)
 
 setX, setY, setZ :: Double -> V3 -> V3
 setX d (V3 _ y z) = V3 d y z
@@ -148,7 +152,16 @@ pts2 n c l = F n [c, c + 10] rd (foldMap (tV2 c) . get l) (Just . JA . map jPoin
 
 -- | A subclass marker: written (after R12), and dropped when read.
 mark :: B.ByteString -> F b
-mark m = F "" [] (\_ _ _ -> Nothing) (const (tMarker m)) (const Nothing) id (Just m)
+mark m = markS m id
+
+-- | A marker that also changes the record when read (the codes after it mean something else).
+markS :: B.ByteString -> (b -> b) -> F b
+markS m f = F "" [] (\_ _ _ -> Nothing) (const (tMarker m)) (const Nothing) id (Just (m, f))
+
+-- | A field of a part of the record, as a field of the record.
+under :: (b -> a) -> (a -> b -> b) -> F a -> F b
+under g s f = F (fName f) (fCodes f) (\c v b -> (\a -> s a b) <$> fRead f c v (g b)) (fWrite f . g)
+  (fDump f . g) (\b -> s (fFin f (g b)) b) (fmap (\(m, h) -> (m, \b -> s (h (g b)) b)) (fMarker f))
 
 -- | Anything else: codes read, a reader, a writer, a dump entry.
 custom :: Name -> [Int] -> (Int -> B.ByteString -> b -> Maybe b) -> (b -> Out) -> (b -> Maybe J) -> (b -> b) -> F b
@@ -156,7 +169,7 @@ custom n cs r w d fin = F n cs r w d fin Nothing
 
 -- | The fields of a record, with an empty record to read into.
 data Codec b = Codec
-  { cdMarkers :: [B.ByteString]
+  { cdMarkers :: [(B.ByteString, b -> b)]
   , cdTable   :: IM.IntMap (F b)
   , cdFields  :: [F b]
   , cdBlank   :: b
@@ -172,8 +185,9 @@ decodeWith :: Codec b -> [Tag] -> (b, [Tag])
 decodeWith (Codec mk tbl _ blank fin) = go blank []
   where
     go !r acc [] = (fin r, reverse acc)
+    go !r acc ts@(Tag 101 _ : _) = (fin r, reverse acc ++ ts)   -- an embedded object: not ours
     go !r acc (t@(Tag c v) : ts)
-      | c == 100, v `elem` mk = go r acc ts
+      | c == 100, Just h <- lookup v mk = go (h r) acc ts
       | Just f <- IM.lookup c tbl, Just r' <- fRead f c v r = go r' acc ts
       | otherwise = go r (t : acc) ts
 

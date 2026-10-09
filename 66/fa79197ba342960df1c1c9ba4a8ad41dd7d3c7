@@ -1,0 +1,19 @@
+src/DXF/Entity/Dimension.hs
+  s_ee2f22f51d8bdb::t_443cc19855557f 1-6,9,13,16-19,21-23,26-130,132-134
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "66fa79197ba342960df1c1c9ba4a8ad41dd7d3c7",
+  "prompts": {},
+  "sessions": {
+    "s_ee2f22f51d8bdb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3863f128-df4e-5080-b64f-79e6e4bdb05e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Wesley Massuda <wesley.massuda@gmail.com>"
+    }
+  }
+}

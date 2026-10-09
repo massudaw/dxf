@@ -21,7 +21,7 @@ from ezdxf.math import Vec2, Vec3
 
 IGNORE = {"handle", "owner"}  # ezdxf invents these for files that have none
 # attributes ezdxf adds when it loads (from handles, or defaults for new table entries)
-SYNTHESISED = {("BLOCK_RECORD", "layout"), ("LAYER", "material_handle"), ("LAYER", "plotstyle_handle"), ("LAYER", "plot")} | {
+SYNTHESISED = {("BLOCK_RECORD", "layout"), ("IMAGE", "count_boundary_points"), ("IMAGE", "clipping_boundary_type"), ("LAYER", "material_handle"), ("LAYER", "plotstyle_handle"), ("LAYER", "plot")} | {
     (t, "paperspace") for t in ("VERTEX", "SEQEND", "ATTRIB")} | {
     ("DIMSTYLE", n) for n in ("dimblk", "dimblk1", "dimblk2", "dimldrblk", "dimtxsty", "dimltype", "dimltex1", "dimltex2")}
 # header variables ezdxf sets itself when it loads a file

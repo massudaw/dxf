@@ -81,7 +81,7 @@ imageCodec marker = codec (Image Nothing v3zero v3zero v3zero v2zero Nothing Not
   , mint "fade" 283 (lens imFade (\r v -> r { imFade = v }))
   , mstr "image_def_reactor_handle" 360 (lens imReactor (\r v -> r { imReactor = v }))
   , mint "clipping_boundary_type" 71 (lens imBoundaryType (\r v -> r { imBoundaryType = v }))
-  , custom "count_boundary_points" [91] (\_ _ r -> Just r) (tI 91 . length . imBoundary) (Just . JI . length . imBoundary) id
+  , custom "count_boundary_points" [91] (\_ _ r -> Just r) (\r -> if null (imBoundary r) then mempty else tI 91 (length (imBoundary r))) (\r -> if null (imBoundary r) then Nothing else Just (JI (length (imBoundary r)))) id
   , pts2 "" 14 (lens imBoundary (\r v -> r { imBoundary = v }))
   , mint "clip_mode" 290 (lens imClipMode (\r v -> r { imClipMode = v })) ]
 

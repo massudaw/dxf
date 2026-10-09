@@ -9,6 +9,7 @@
 module DXF.Entity.Common
   ( Common (..), More (..), blankCommon, blankMore
   , splitTags, commonHead, commonTail, commonDump
+  , plainHead, headWriter
   ) where
 
 import Control.DeepSeq (NFData)
@@ -18,6 +19,11 @@ import DXF.Json
 import DXF.Number
 import DXF.Tag
 import DXF.Tag.Out
+import DXF.Tag.Prim
+import Data.ByteString.Builder.Prim (primBounded)
+import Data.ByteString.Builder.Prim.Internal (boundedPrim)
+import Data.Word (Word8)
+import Foreign.Ptr (Ptr)
 
 -- | The @AcDbEntity@ attributes that are rarely set.
 data More = More
@@ -107,10 +113,14 @@ field k v c = case k of
 -- | @0 TYPE@, handle, application data, owner, and for graphical
 -- entities the @AcDbEntity@ subclass.
 commonHead :: Bool -> B.ByteString -> Common -> Out
-commonHead graphic ty c f =
-  tS 0 ty f <> tMaybeS 5 (cHandle c) f <> foldMap tTags (cAppData c) f <> tMaybeS 330 (cOwner c) f
-  <> (if graphic then ent else mempty)
+commonHead graphic ty c f
+  | not (fmtBinary f), plainHead ty c =
+      primBounded (boundedPrim 900 (\() -> headWriter (fmtPad f) (fmtCRLF f) (fmtR12 f) graphic ty c)) ()
+  | otherwise = general
   where
+    general =
+      tS 0 ty f <> tMaybeS 5 (cHandle c) f <> foldMap tTags (cAppData c) f <> tMaybeS 330 (cOwner c) f
+      <> (if graphic then ent else mempty)
     m = cMore c
     ent = tMarker "AcDbEntity" f <> tMaybeI 67 (cPaperspace c) f <> tMaybeS 8 (cLayer c) f
       <> tMaybeS 6 (cLinetype c) f <> tMaybeI 62 (cColor c) f <> tMaybeI 370 (cLineweight c) f
@@ -118,6 +128,32 @@ commonHead graphic ty c f =
       <> tMaybeS 430 (mColorName m) f <> tMaybeI 440 (mTransparency m) f <> tMaybeI 284 (mShadow m) f
       <> tMaybeS 347 (mMaterial m) f <> tMaybeS 348 (mVisualStyle m) f <> tMaybeI 380 (mPlotStyleEnum m) f
       <> tMaybeS 390 (mPlotStyle m) f
+
+-- | The usual head: no application data, none of the rare attributes,
+-- strings short and numbers plain, so one primitive writes it all.
+plainHead :: B.ByteString -> Common -> Bool
+plainHead ty c = null (cAppData c) && cMore c == blankMore && shortBytes ty
+  && sb (cHandle c) && sb (cOwner c) && sb (cLayer c) && sb (cLinetype c)
+  && maybe True plainDouble (cLtScale c)
+  where sb = maybe True shortBytes
+
+-- | The head of a 'plainHead' (at most 900 bytes), written into the buffer.
+headWriter :: Bool -> Bool -> Bool -> Bool -> B.ByteString -> Common -> Ptr Word8 -> IO (Ptr Word8)
+headWriter pad crlf r12 graphic ty c p0 = do
+  p1 <- putBytesTag pad crlf 0 ty p0
+  p2 <- opt 5 (cHandle c) p1
+  p3 <- opt 330 (cOwner c) p2
+  if not graphic then pure p3 else do
+    p4 <- if r12 then pure p3 else putBytesTag pad crlf 100 "AcDbEntity" p3
+    p5 <- optI 67 (cPaperspace c) p4
+    p6 <- opt 8 (cLayer c) p5
+    p7 <- opt 6 (cLinetype c) p6
+    p8 <- optI 62 (cColor c) p7
+    p9 <- optI 370 (cLineweight c) p8
+    maybe (pure p9) (\d -> putDoubleTag pad crlf 48 d p9) (cLtScale c)
+  where
+    opt k m p = maybe (pure p) (\s -> putBytesTag pad crlf k s p) m
+    optI k m p = maybe (pure p) (\i -> putIntTag pad crlf k i p) m
 
 -- | What nothing understood, then the extended data.
 commonTail :: Common -> Out

@@ -1,0 +1,20 @@
+src/DXF/Parse.hs
+  h_fd5809635b36a3 48,93
+src/DXF/Tag.hs
+  h_fd5809635b36a3 104-105
+src/DXF/Tag/Binary.hs
+  h_fd5809635b36a3 1
+src/DXF/Tag/Text.hs
+  h_fd5809635b36a3 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "254bb002a3b0e91caca94961dbd135f75e216ebe",
+  "prompts": {},
+  "humans": {
+    "h_fd5809635b36a3": {
+      "author": "Wesley Massuda <wesley.massuda@gmail.com>"
+    }
+  }
+}

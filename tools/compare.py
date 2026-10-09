@@ -107,7 +107,7 @@ def kids_of(e):
     elif t == "INSERT":
         ks = list(e.attribs)
     sq = getattr(e, "seqend", None)
-    if sq is not None and (ks or t in ("POLYLINE", "INSERT")):
+    if sq is not None and (ks or t == "POLYLINE"):
         ks.append(sq)
     return ks
 

@@ -11,7 +11,7 @@ module DXF.Codec
   ( F (..), L, lens
   , dbl, mdbl, int, mint, str, mstr, flag
   , pt3, mpt3, pt2, mpt2, dbls, ints, strs, pts3, pts2
-  , mark, markS, custom, under
+  , mark, markS, markR, custom, under
   , Codec, codec, decodeWith, encodeWith, dumpWith
   , BodyCodec (..), entityCodec
   ) where
@@ -157,6 +157,10 @@ mark m = markS m id
 -- | A marker that also changes the record when read (the codes after it mean something else).
 markS :: B.ByteString -> (b -> b) -> F b
 markS m f = F "" [] (\_ _ _ -> Nothing) (const (tMarker m)) (const Nothing) id (Just (m, f))
+
+-- | A marker that is dropped when read and never written.
+markR :: B.ByteString -> F b
+markR m = F "" [] (\_ _ _ -> Nothing) (const mempty) (const Nothing) id (Just (m, id))
 
 -- | A field of a part of the record, as a field of the record.
 under :: (b -> a) -> (a -> b -> b) -> F a -> F b

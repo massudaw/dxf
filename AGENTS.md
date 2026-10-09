@@ -62,3 +62,11 @@ Work in one loop: do not use `spawn` or `tell`.
 For the routine check, use the session's `test` tool (the suite is wired to it, and the session has the code
 compiled already): `cabal build` of the test executable compiles everything a second time, twenty seconds a
 run. Keep the built executables for what needs them -- the profiled runs and the numbers in PERF.md.
+
+## What is not committed
+
+Data and compiled files stay out of the repository (`.gitignore`): no `*.dxf` -- the samples are another
+project's, and the fixtures in `test/data/` are written by `tools/gen_all.sh` (every `tools/gen_*.py`, run
+with the reference's Python) -- and no `__pycache__`, `*.pyc`, objects or profiles. A fixture a test needs
+has to come out of a generator that is committed: the `r12`/`r2007`/`r2018` `.txt.dxf` and `.bin.dxf`
+fixtures were made by hand from samples with `tools/genbin.py` and have no generator yet -- give them one.

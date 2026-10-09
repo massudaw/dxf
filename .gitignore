@@ -1,7 +1,22 @@
+# build output and the session's state
 dist-newstyle/
 .ghci-session/
+
+# the reference (a Python environment with ezdxf) and the sample drawings: not this repository's
 .ref/
 samples/
+
+# data: every DXF file here is a sample or a fixture written by tools/gen_all.sh, not a source
+*.dxf
+*.DXF
+
+# compiled and generated
+__pycache__/
+*.pyc
+*.o
+*.hi
+*.dyn_o
+*.dyn_hi
 *.prof
 *.hp
 *.eventlog

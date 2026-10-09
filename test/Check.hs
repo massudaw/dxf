@@ -4,9 +4,10 @@ module Check (run, runWith) where
 import System.Exit (exitFailure)
 import Check.Util
 import qualified Check.Tags
+import qualified Check.Document
 
 groups :: [(String, IO Result)]
-groups = Check.Tags.checks
+groups = Check.Tags.checks ++ Check.Document.checks
 
 -- | Run the checks whose name contains the given text (all if empty).
 runWith :: String -> IO Bool

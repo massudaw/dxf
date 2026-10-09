@@ -1,0 +1,16 @@
+src/DXF/Entity/Misc.hs
+  h_fd5809635b36a3 84
+tools/compare.py
+  h_fd5809635b36a3 24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "475d5dbe5916eed7f9225a272ca68a856a2b1fee",
+  "prompts": {},
+  "humans": {
+    "h_fd5809635b36a3": {
+      "author": "Wesley Massuda <wesley.massuda@gmail.com>"
+    }
+  }
+}

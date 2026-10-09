@@ -5,7 +5,7 @@
 -- typed through a table of names, codes and arity -- the names are
 -- ezdxf's.
 module DXF.Entity.Vars
-  ( Vars (..), VarDef, varsCodec
+  ( Vars (..), VarDef, varsCodec, bagCodec
   , varStr, varInt, varDouble, varPoint
   ) where
 
@@ -59,6 +59,24 @@ varsCodec marker defs = codec (Vars "" Nothing []) $
     dump 1 c r = jv c <$> lookupVar c r
     dump k c r = JA <$> mapM (\i -> jv (c + 10 * i) <$> lookupVar (c + 10 * i) r) [0 .. k - 1]
     lookupVar c r = if c == 70 then lookup 70 (vVars r) else lookup c (vVars r)
+    jv c v = case kindOf c of
+      KDouble -> maybe (JS v) JD (readDouble v)
+      KStr -> JS v
+      KBin -> JS v
+      _ -> maybe (JS v) JI (readInt v)
+
+-- | A record of variables only (no name, no flags): VIEWPORT.  The
+-- variables are kept as the tags they were, in order.
+bagCodec :: B.ByteString -> [VarDef] -> Codec Vars
+bagCodec marker defs = codec (Vars "" Nothing []) $
+  [ mark marker
+  , custom "" codes (\c v r -> Just r { vVars = (c, v) : vVars r })
+      (\r -> foldMap (\(c, v) -> tRaw (Tag c v)) (vVars r)) (const Nothing) (\r -> r { vVars = reverse (vVars r) }) ]
+  ++ [custom n [] (\_ _ _ -> Nothing) (const mempty) (dump k c) id | (n, c, k) <- defs]
+  where
+    codes = [c + 10 * k | (_, c, n) <- defs, k <- [0 .. n - 1]]
+    dump 1 c r = jv c <$> lookup c (vVars r)
+    dump k c r = JA <$> mapM (\i -> jv (c + 10 * i) <$> lookup (c + 10 * i) (vVars r)) [0 .. k - 1]
     jv c v = case kindOf c of
       KDouble -> maybe (JS v) JD (readDouble v)
       KStr -> JS v

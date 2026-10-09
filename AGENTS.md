@@ -57,6 +57,8 @@ The code is loaded in a warm GHCi session: `eval` answers in milliseconds, a fil
 its verdict comes back with the write. Use that rather than building by hand. Commit as the work goes, in
 steps that each build and pass, on the branch `full-parser`. Do not push.
 
-You can give independent parts away with `spawn` (a group of entities each, the binary format, the test
-suite): say in each task exactly which files it owns, since two subagents writing the same file undo each
-other.
+Work in one loop: do not use `spawn` or `tell`.
+
+For the routine check, use the session's `test` tool (the suite is wired to it, and the session has the code
+compiled already): `cabal build` of the test executable compiles everything a second time, twenty seconds a
+run. Keep the built executables for what needs them -- the profiled runs and the numbers in PERF.md.

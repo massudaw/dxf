@@ -1,0 +1,7 @@
+dist-newstyle/
+.ghci-session/
+.ref/
+samples/
+*.prof
+*.hp
+*.eventlog

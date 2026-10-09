@@ -1,0 +1,21 @@
+AGENTS.md
+  s_ee2f22f51d8bdb::t_36209466f78fac 53-57
+ghci-session.json
+  s_ee2f22f51d8bdb::t_4f5a290e256af5 8-16,18-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "947d0b8532e49329dd17e5cbfb94ad07ed1e7c32",
+  "prompts": {},
+  "sessions": {
+    "s_ee2f22f51d8bdb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3863f128-df4e-5080-b64f-79e6e4bdb05e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Wesley Massuda <wesley.massuda@gmail.com>"
+    }
+  }
+}

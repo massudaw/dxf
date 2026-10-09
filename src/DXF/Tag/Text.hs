@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BangPatterns, OverloadedStrings #-}
 -- | Text DXF to tags.  Lines end in LF or CR LF; the value of a tag is
 -- the line as it is (a slice of the input), the group code is parsed.
 -- The list is produced lazily: a consumer that drops tags as it goes

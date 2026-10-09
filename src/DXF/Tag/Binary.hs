@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BangPatterns, OverloadedStrings #-}
 -- | Binary DXF ("AutoCAD Binary DXF") to tags and back.
 --
 -- Binary values become the same text form a text file holds: integers in

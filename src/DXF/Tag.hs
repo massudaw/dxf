@@ -101,7 +101,8 @@ data Fmt = Fmt
 defaultFmt :: Fmt
 defaultFmt = Fmt False False True False
 
-data DxfError = DxfError !Int String
+-- | A file that cannot be read: the line or position, and what is wrong.
+data DxfError = DxfError !Int !B.ByteString
   deriving Show
 
 instance Exception DxfError

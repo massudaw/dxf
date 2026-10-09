@@ -1,0 +1,59 @@
+app/Summary.hs
+  s_6e55a4691f1b7b::t_d681531a010d1b 1-16
+dxf.cabal
+  s_6e55a4691f1b7b::t_5e0342ec0aacbf 1,5,12-34,38-46,48
+ghci-session.json
+  s_6e55a4691f1b7b::t_83b7c4b7e3b8a6 10
+src/DXF/Entity.hs
+  s_6e55a4691f1b7b::t_85eb167a4ff974 87
+src/DXF/Summary.hs
+  s_6e55a4691f1b7b::t_ac9e438f8f622a 24
+test/Check.hs
+  s_6e55a4691f1b7b::t_3b70992887c8ba 8-17,20-31
+test/Check/Dimension.hs
+  s_6e55a4691f1b7b::t_56a87615005077 1-10
+test/Check/Geometry.hs
+  s_6e55a4691f1b7b::t_5b597b67208370 1-9
+test/Check/Group.hs
+  s_6e55a4691f1b7b::t_a689626054df59 1-26
+test/Check/Hatch.hs
+  s_6e55a4691f1b7b::t_8b00509436a4c6 1-10
+test/Check/Misc.hs
+  s_6e55a4691f1b7b::t_406dddcfb46fba 1-10
+test/Check/Objects.hs
+  s_6e55a4691f1b7b::t_36255e01280182 1-10
+test/Check/Oracle.hs
+  s_6e55a4691f1b7b::t_1b7079dff289ef 1-56
+test/Check/Poly.hs
+  s_6e55a4691f1b7b::t_8629d077a54eab 1-10
+test/Check/Samples.hs
+  s_6e55a4691f1b7b::t_d83c3cf96dc908 1-9
+test/Check/Settings.hs
+  s_6e55a4691f1b7b::t_12929758deb457 1-10
+test/Check/Tables.hs
+  s_6e55a4691f1b7b::t_e2a11199f1cfcd 1-10
+test/Check/Text.hs
+  s_6e55a4691f1b7b::t_397c44e3f1b1e0 1-10
+test/data/geometry.dxf
+  s_6e55a4691f1b7b::t_47fa248850a970 1-3286
+test/data/geometry_r12.dxf
+  s_6e55a4691f1b7b::t_9b9013ce4226f9 1-1160
+tools/gen_geometry.py
+  s_6e55a4691f1b7b::t_af37eea7749a9b 1-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "18b93cce7dd3a500544cc25fcea98b2df7fb6222",
+  "prompts": {},
+  "sessions": {
+    "s_6e55a4691f1b7b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6ec73439-e7f5-55aa-868c-b14d24f000b0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Wesley Massuda <wesley.massuda@gmail.com>"
+    }
+  }
+}

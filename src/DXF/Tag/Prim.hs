@@ -9,6 +9,7 @@
 -- decimal (huge, tiny or non-finite doubles, long strings).
 module DXF.Tag.Prim
   ( doubleTag, intTag, bytesTag
+  , putDoubleTag, putIntTag, putBytesTag, plainDouble, shortBytes
   ) where
 
 import qualified Data.ByteString as B
@@ -55,38 +56,55 @@ codeLine pad crlf c p0 = do
   p2 <- putInt c p1
   eolW crlf p2
 
+-- | Whether a double is written by the primitive (plain decimal).
+plainDouble :: Double -> Bool
+plainDouble d = (a >= 1e-5 && a < 1e16) || (d == 0 && not (isNegativeZero d))
+  where a = abs d
+{-# INLINE plainDouble #-}
+
+-- | Whether bytes are written by the primitive.
+shortBytes :: B.ByteString -> Bool
+shortBytes s = B.length s <= 64
+{-# INLINE shortBytes #-}
+
+-- | The writers behind the three tag builders, for callers that write
+-- several tags in one primitive.  A double must satisfy 'plainDouble'
+-- (at most 96 bytes), bytes 'shortBytes' (at most 80), an int takes 48.
+putDoubleTag :: Bool -> Bool -> Int -> Double -> Ptr Word8 -> IO (Ptr Word8)
+putDoubleTag pad crlf c x p0 = do
+  p1 <- codeLine pad crlf c p0
+  p2 <- if x == 0 then do pokeByteOff p1 0 (48 :: Word8); pokeByteOff p1 1 (46 :: Word8)
+                          pokeByteOff p1 2 (48 :: Word8); pure (p1 `plusPtr` 3)
+        else writeDouble x p1
+  eolW crlf p2
+{-# INLINE putDoubleTag #-}
+
+putIntTag :: Bool -> Bool -> Int -> Int -> Ptr Word8 -> IO (Ptr Word8)
+putIntTag pad crlf c i p0 = do
+  p1 <- codeLine pad crlf c p0
+  p2 <- putInt i p1
+  eolW crlf p2
+
+putBytesTag :: Bool -> Bool -> Int -> B.ByteString -> Ptr Word8 -> IO (Ptr Word8)
+putBytesTag pad crlf c v p0 = do
+  p1 <- codeLine pad crlf c p0
+  let n = B.length v
+  U.unsafeUseAsCString v (\src -> copyBytes p1 (castPtr src) n)
+  eolW crlf (p1 `plusPtr` n)
+
 -- | A tag whose value is a double.
 doubleTag :: Bool -> Bool -> Int -> Double -> BB.Builder -> BB.Builder
 doubleTag pad crlf c d fallback
-  | (a >= 1e-5 && a < 1e16) || (d == 0 && not (isNegativeZero d)) = primBounded (boundedPrim 96 body) d
+  | plainDouble d = primBounded (boundedPrim 96 (putDoubleTag pad crlf c)) d
   | otherwise = fallback
-  where
-    a = abs d
-    body x p0 = do
-      p1 <- codeLine pad crlf c p0
-      p2 <- if x == 0 then do pokeByteOff p1 0 (48 :: Word8); pokeByteOff p1 1 (46 :: Word8)
-                              pokeByteOff p1 2 (48 :: Word8); pure (p1 `plusPtr` 3)
-            else writeDouble x p1
-      eolW crlf p2
 
 -- | A tag whose value is an integer.
 intTag :: Bool -> Bool -> Int -> Int -> BB.Builder
-intTag pad crlf c = primBounded (boundedPrim 48 body)
-  where
-    body i p0 = do
-      p1 <- codeLine pad crlf c p0
-      p2 <- putInt i p1
-      eolW crlf p2
+intTag pad crlf c = primBounded (boundedPrim 48 (putIntTag pad crlf c))
 
 -- | A tag whose value is bytes (a short string is written by the
 -- primitive; a long one by the fallback).
 bytesTag :: Bool -> Bool -> Int -> B.ByteString -> BB.Builder -> BB.Builder
 bytesTag pad crlf c s fallback
-  | B.length s <= 64 = primBounded (boundedPrim 80 body) s
+  | shortBytes s = primBounded (boundedPrim 80 (putBytesTag pad crlf c)) s
   | otherwise = fallback
-  where
-    body v p0 = do
-      p1 <- codeLine pad crlf c p0
-      let n = B.length v
-      U.unsafeUseAsCString v (\src -> copyBytes p1 (castPtr src) n)
-      eolW crlf (p1 `plusPtr` n)

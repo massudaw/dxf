@@ -81,6 +81,7 @@ library
                     DXF.Entity.Common
                     DXF.Entity.Types
                     DXF.Entity.Fast
+                    DXF.Entity.FastOut
                     DXF.Entity.Geometry
                     DXF.Entity.Text
                     DXF.Entity.Poly

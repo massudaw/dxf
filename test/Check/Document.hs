@@ -6,6 +6,7 @@ module Check.Document
   ) where
 
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
 import Data.List (isSuffixOf)
 import qualified Data.Map.Strict as M
@@ -73,6 +74,18 @@ fastAgrees f = attempt f $ do
     (Left e, Left _) -> [f ++ ": does not parse: " ++ show e]
     _ -> [f ++ ": parses with one decoder only"]
 
+-- | A LINE written in one primitive is what the codecs write, in every layout.
+lineOutAgrees :: FilePath -> IO Result
+lineOutAgrees f = attempt f $ do
+  r <- parseFile f
+  return $ case r of
+    Left e -> [f ++ ": does not parse: " ++ show e]
+    Right d -> concat
+      [ failIf (out fmt (encodeEntity e) /= out fmt (encodeGeneral e)) (f ++ ": LINE written differently: " ++ show e)
+      | SEntities es <- docSections d, e <- take 20000 es
+      , fmt <- [Fmt False a b c | a <- [False, True], b <- [False, True], c <- [False, True]] ]
+  where out fmt o = BL.toStrict (BB.toLazyByteString (o fmt))
+
 fixtures :: IO [FilePath]
 fixtures = map ("test/data/" ++) . filter (isSuffixOf ".dxf") <$> listDirectory "test/data"
 
@@ -80,4 +93,6 @@ checks :: [(String, IO Result)]
 checks =
   [ ("document: parse, print, parse again, nothing lost (every sample)", allSamples)
   , ("document: fast decoders read what the general one reads (samples, fixtures)"
-    , do fs <- (++) <$> sampleFiles <*> fixtures; concat <$> mapM fastAgrees fs) ]
+    , do fs <- (++) <$> sampleFiles <*> fixtures; concat <$> mapM fastAgrees fs)
+  , ("document: a LINE written in one primitive is what the codecs write (samples, fixtures)"
+    , do fs <- (++) <$> sampleFiles <*> fixtures; concat <$> mapM lineOutAgrees fs) ]

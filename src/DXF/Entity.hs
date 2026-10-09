@@ -4,7 +4,7 @@
 module DXF.Entity
   ( module DXF.Entity.Types
   , module DXF.Entity.Common
-  , decodeEntity, encodeEntity, dumpEntity, linkEntities
+  , decodeEntity, encodeEntity, encodeGeneral, dumpEntity, linkEntities
   , entityTypes
   ) where
 
@@ -14,6 +14,7 @@ import DXF.Codec
 import DXF.Entity.Block
 import DXF.Entity.Common
 import DXF.Entity.Dimension
+import DXF.Entity.FastOut
 import DXF.Entity.Geometry
 import DXF.Entity.Hatch
 import DXF.Entity.Misc
@@ -72,7 +73,14 @@ decodeEntity (Tag _ ty : rest) = case M.lookup ty registry of
 
 -- | Write an entity and its children.
 encodeEntity :: Entity -> Out
-encodeEntity (Entity ty c b kids) = case b of
+encodeEntity en f = case fastLineOut f en of
+  Just o -> o
+  Nothing -> encodeGeneral en f
+
+-- | The same through the codecs only ('encodeEntity' writes the usual LINE
+-- in one primitive; the test suite compares the two).
+encodeGeneral :: Entity -> Out
+encodeGeneral (Entity ty c b kids) = case b of
   BRaw ts -> tS 0 ty <> tTags ts <> foldMap encodeEntity kids
   _ -> case M.lookup ty registry of
     Just ec -> commonHead (ecGraphic ec) ty c <> ecEncode ec b <> commonTail c <> foldMap encodeEntity kids

@@ -12,16 +12,18 @@ import Check.Util
 import DXF
 
 -- | A tag's identity for comparison: numbers by value.
-norm :: Tag -> (Int, B.ByteString)
-norm t@(Tag c v) = case kindOf c of
-  KStr -> (c, v)
-  KBin -> (c, v)
-  KDouble -> maybe (c, v) (\d -> (c, B.pack (map (fromIntegral . fromEnum) (show d)))) (readDouble v)
-  _ -> maybe (c, v) (\_ -> (c, B.pack (map (fromIntegral . fromEnum) (show (tagInt t))))) (readInt v)
+norm :: Tag -> (Int, Double, B.ByteString)
+norm (Tag c v) = case kindOf c of
+  KStr -> (c, 0, v)
+  KBin -> (c, 0, v)
+  KDouble -> maybe (c, 0, v) (\d -> (c, d, B.empty)) (readDouble v)
+  _ -> maybe (c, 0, v) (\n -> (c, fromIntegral n, B.empty)) (readInt v)
 
 -- | Tags of the first list that the second does not hold (as a multiset).
 missingTags :: [Tag] -> [Tag] -> [Tag]
-missingTags orig new = go orig have
+missingTags orig new
+  | length orig == length new && and (zipWith (\a b -> norm a == norm b) orig new) = []   -- the usual case: same tags, same order
+  | otherwise = go orig have
   where
     have = M.fromListWith (+) [(norm t, 1 :: Int) | t <- new]
     go [] _ = []
@@ -50,7 +52,7 @@ roundTripFile f = attempt f $ do
           let out2 = BL.toStrict (documentBytes d2)
               (_, t0) = scanTags bs
               (_, t1) = scanTags out1
-              lost = missingTags (stripCounts (filter (\(Tag c _) -> c /= 999) t0)) t1
+              lost = missingTags (stripCounts (filter (\(Tag c _) -> c /= 999) t0)) (stripCounts t1)
           return $ concat
             [ failIf (d1 /= d2) (f ++ ": parse (print d) /= d")
             , failIf (out1 /= out2) (f ++ ": print is not stable")

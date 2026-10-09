@@ -1,8 +1,12 @@
 -- | The whole check: every group of checks, run in order.
 module Check (run, runWith) where
 
+import System.Environment (setEnv, unsetEnv)
 import System.Exit (exitFailure)
 import Check.Util
+import Check.Oracle (oracleFiles, oracleReset)
+import Data.List (isSuffixOf)
+import System.Directory (listDirectory)
 import qualified Check.Tags
 import qualified Check.Document
 import qualified Check.Samples
@@ -32,9 +36,25 @@ groups = concat
 
 -- | Run the checks whose name contains the given text (all if empty).
 runWith :: String -> IO Bool
-runWith pat = runAll (filter (contains pat . fst) groups) >>= report
+runWith pat = (if null pat then prefetch else oracleReset) >> runAll (filter (contains pat . fst) groups) >>= report
   where contains p s = null p || any (\i -> take (length p) (drop i s) == p) [0 .. length s]
 
--- | Run everything; the process fails if a check does.
+-- | The routine check (the session's @test@): every group, but over every
+-- sixth sample and f001.dxf.  @runWith ""@ is the whole check, every sample (about two minutes).
 run :: IO ()
-run = runWith "" >>= \ok -> if ok then return () else exitFailure
+run = do
+  setEnv "DXF_QUICK" "1"
+  ok <- runWith ""
+  unsetEnv "DXF_QUICK"
+  if ok then return () else exitFailure
+
+-- | Start with the oracle: every fixture and sample the checks will compare, several
+-- Python processes at a time, so the checks find the answers ready.
+prefetch :: IO ()
+prefetch = do
+  oracleReset
+  fixtures <- map ("test/data/" ++) . filter fixture <$> listDirectory "test/data"
+  samples' <- sampleFiles
+  _ <- oracleFiles (fixtures ++ filter (not . isSuffixOf "3CG BASE PLANS (from the SketchUp model).dxf") samples')
+  return ()
+  where fixture n = ".dxf" `isSuffixOf` n && not (any (`isSuffixOf` n) [".bin.dxf", ".txt.dxf"])

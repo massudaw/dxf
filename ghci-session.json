@@ -6,14 +6,20 @@
   "targets": {
     "dxf": {
       "units": [
-        "lib:dxf"
+        "lib:dxf",
+        "test:dxf-test"
       ],
       "watch": [
-        "src"
+        "src",
+        "test"
       ],
       "modules": [
-        "DXF"
-      ]
+        "DXF",
+        "Check"
+      ],
+      "test": {
+        "expr": "Check.run"
+      }
     }
   },
   "cabal_args": "--repl-options=-fobject-code --repl-options=-O1 --repl-options=-fno-ignore-interface-pragmas"

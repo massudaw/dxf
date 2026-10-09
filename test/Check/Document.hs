@@ -7,7 +7,9 @@ module Check.Document
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
+import Data.List (isSuffixOf)
 import qualified Data.Map.Strict as M
+import System.Directory (listDirectory)
 import Check.Util
 import DXF
 
@@ -62,5 +64,20 @@ roundTripFile f = attempt f $ do
 allSamples :: IO Result
 allSamples = sampleFiles >>= fmap concat . mapM roundTripFile
 
+-- | The entities read straight from the bytes are what the general decoder reads.
+fastAgrees :: FilePath -> IO Result
+fastAgrees f = attempt f $ do
+  bs <- B.readFile f
+  return $ case (parseDXF bs, parseGeneral bs) of
+    (Right a, Right b) -> failIf (a /= b) (f ++ ": fast and general decoders read different documents")
+    (Left e, Left _) -> [f ++ ": does not parse: " ++ show e]
+    _ -> [f ++ ": parses with one decoder only"]
+
+fixtures :: IO [FilePath]
+fixtures = map ("test/data/" ++) . filter (isSuffixOf ".dxf") <$> listDirectory "test/data"
+
 checks :: [(String, IO Result)]
-checks = [("document: parse, print, parse again, nothing lost (every sample)", allSamples)]
+checks =
+  [ ("document: parse, print, parse again, nothing lost (every sample)", allSamples)
+  , ("document: fast decoders read what the general one reads (samples, fixtures)"
+    , do fs <- (++) <$> sampleFiles <*> fixtures; concat <$> mapM fastAgrees fs) ]

@@ -25,28 +25,28 @@ data GeoBody
   deriving (Eq, Show, Generic, NFData)
 
 data Line = Line
-  { lineStart     :: !V3
-  , lineEnd       :: !V3
+  { lineStart     :: {-# UNPACK #-} !V3
+  , lineEnd       :: {-# UNPACK #-} !V3
   , lineThickness :: !(Maybe Double)
   , lineExtrusion :: !(Maybe V3)
   } deriving (Eq, Show, Generic, NFData)
 
 data Point = Point
-  { pointLocation  :: !V3
+  { pointLocation  :: {-# UNPACK #-} !V3
   , pointThickness :: !(Maybe Double)
   , pointExtrusion :: !(Maybe V3)
   , pointAngle     :: !(Maybe Double)   -- ^ rotation of the point's coordinate system
   } deriving (Eq, Show, Generic, NFData)
 
 data Circle = Circle
-  { circleCenter    :: !V3
+  { circleCenter    :: {-# UNPACK #-} !V3
   , circleRadius    :: !Double
   , circleThickness :: !(Maybe Double)
   , circleExtrusion :: !(Maybe V3)
   } deriving (Eq, Show, Generic, NFData)
 
 data Arc = Arc
-  { arcCenter     :: !V3
+  { arcCenter     :: {-# UNPACK #-} !V3
   , arcRadius     :: !Double
   , arcStartAngle :: !Double
   , arcEndAngle   :: !Double
@@ -55,8 +55,8 @@ data Arc = Arc
   } deriving (Eq, Show, Generic, NFData)
 
 data Ellipse = Ellipse
-  { elCenter    :: !V3
-  , elMajorAxis :: !V3             -- ^ endpoint of the major axis relative to the center
+  { elCenter    :: {-# UNPACK #-} !V3
+  , elMajorAxis :: {-# UNPACK #-} !V3             -- ^ endpoint of the major axis relative to the center
   , elRatio     :: !Double         -- ^ minor to major
   , elStartParam :: !Double        -- ^ radians
   , elEndParam  :: !Double
@@ -65,21 +65,21 @@ data Ellipse = Ellipse
 
 -- | SOLID and TRACE: four corners (the third and fourth are equal for a triangle).
 data Quad = Quad
-  { qP0 :: !V3, qP1 :: !V3, qP2 :: !V3, qP3 :: !V3   -- ^ 10, 11, 12, 13
+  { qP0 :: {-# UNPACK #-} !V3, qP1 :: {-# UNPACK #-} !V3, qP2 :: {-# UNPACK #-} !V3, qP3 :: {-# UNPACK #-} !V3   -- ^ 10, 11, 12, 13
   , qElevation :: !(Maybe Double)                    -- ^ 38
   , qThickness :: !(Maybe Double)
   , qExtrusion :: !(Maybe V3)
   } deriving (Eq, Show, Generic, NFData)
 
 data Face3d = Face3d
-  { fP0 :: !V3, fP1 :: !V3, fP2 :: !V3, fP3 :: !V3
+  { fP0 :: {-# UNPACK #-} !V3, fP1 :: {-# UNPACK #-} !V3, fP2 :: {-# UNPACK #-} !V3, fP3 :: {-# UNPACK #-} !V3
   , fInvisible :: !(Maybe Int)                       -- ^ 70, bit set: that edge is invisible
   } deriving (Eq, Show, Generic, NFData)
 
 -- | RAY and XLINE.
 data XLine = XLine
-  { xlStart :: !V3
-  , xlDirection :: !V3             -- ^ unit vector
+  { xlStart :: {-# UNPACK #-} !V3
+  , xlDirection :: {-# UNPACK #-} !V3             -- ^ unit vector
   } deriving (Eq, Show, Generic, NFData)
 
 lineCodec :: Codec Line

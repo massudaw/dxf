@@ -107,7 +107,7 @@ readDouble bs = start 0
               | otherwise = fin k m ((if eneg then negate e else e) - fd)
         fin !j !m !e
           | not (blanks j) = Nothing
-          | otherwise = Just (sgn (build m e))
+          | otherwise = let !d = sgn (build m e) in Just d
         blanks !j = j >= n || (isSp (at bs j) && blanks (j + 1))
         sgn d = if neg then negate d else d
         build :: Word64 -> Int -> Double

@@ -175,7 +175,7 @@ def main():
         doc = ezdxf.readfile(path)
     except Exception:
         doc, _ = recover.readfile(path)
-    enc = doc.encoding
+    enc = "utf-8" if doc.dxfversion >= "AC1021" else doc.encoding
     rep = Report()
     if ours["version"] != doc.dxfversion:
         rep.bad(f"version {ours['version']} vs {doc.dxfversion}")

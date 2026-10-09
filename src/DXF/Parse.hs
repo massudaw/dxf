@@ -45,7 +45,7 @@ sections (Tag 0 "SECTION" : Tag 2 name : rest) =
   let (s, rest') = section (trim name) rest in s `seq` (s : sections rest')
 sections (Tag 0 "EOF" : _) = []
 sections [] = []
-sections (Tag c v : _) = throw (DxfError 0 ("unexpected tag outside a section: " ++ show (c, v)))
+sections (Tag c v : _) = throw (DxfError 0 ("unexpected tag outside a section: " <> v <> " (group code " <> B.pack (map (fromIntegral . fromEnum) (show c)) <> ")"))
 
 trim :: B.ByteString -> B.ByteString
 trim = B.dropWhileEnd (== 32)
@@ -90,4 +90,4 @@ groupBlocks (e : es)
   | eType e == "BLOCK" =
       let (body, rest) = break ((== "ENDBLK") . eType) es
       in Block e body (case rest of (x : _) -> Just x; [] -> Nothing) : groupBlocks (drop 1 rest)
-  | otherwise = throw (DxfError 0 ("entity outside a block in BLOCKS: " ++ show (eType e)))
+  | otherwise = throw (DxfError 0 ("entity outside a block in BLOCKS: " <> eType e))

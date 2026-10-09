@@ -5,7 +5,7 @@
 -- typed through a table of names, codes and arity -- the names are
 -- ezdxf's.
 module DXF.Entity.Vars
-  ( Vars (..), VarDef, varsCodec, bagCodec
+  ( Vars (..), VarDef, varsCodec, bagCodec, varJ, dumpDefs
   , varStr, varInt, varDouble, varPoint
   ) where
 
@@ -82,3 +82,18 @@ bagCodec marker defs = codec (Vars "" Nothing []) $
       KStr -> JS v
       KBin -> JS v
       _ -> maybe (JS v) JI (readInt v)
+
+-- | A tag value as the JSON its group code's type gives.
+varJ :: Int -> B.ByteString -> J
+varJ c v = case kindOf c of
+  KDouble -> maybe (JS v) JD (readDouble v)
+  KStr -> JS v
+  KBin -> JS v
+  _ -> maybe (JS v) JI (readInt v)
+
+-- | Dump-only fields for the named variables found in a list of tags.
+dumpDefs :: [VarDef] -> (r -> [(Int, B.ByteString)]) -> [F r]
+dumpDefs defs get = [custom n [] (\_ _ _ -> Nothing) (const mempty) (dump k c) id | (n, c, k) <- defs]
+  where
+    dump 1 c r = varJ c <$> lookup c (get r)
+    dump k c r = JA <$> mapM (\i -> varJ (c + 10 * i) <$> lookup (c + 10 * i) (get r)) [0 .. k - 1]

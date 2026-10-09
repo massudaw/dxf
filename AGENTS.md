@@ -43,14 +43,12 @@ The goal is a complete DXF parser and printer, modelled on ezdxf, the main Pytho
 - **Checked against the samples.** Every sample parses; every sample survives the round trip; what was
   found in each (entities by type, layers, blocks) is what ezdxf finds. A test suite in the cabal file does
   this, and the session's `test` runs it (set `"test"` in `ghci-session.json` once it exists). The session
-  reads `ghci-session.json` only when it starts: after editing it (the test, the units, the watched
-  directories), run `ghci-session stop dxf && ghci-session start dxf` with `sh` -- the `restart` tool keeps
-  the old configuration.
+  takes a change to `ghci-session.json` by itself: a second after it is saved, the repl is restarted on it.
 - Modules stay under 250 lines each: one per concern (tags, each section, groups of entities).
 
 ## How to work
 
-The session loads the library COMPILED and optimised (`-fobject-code -O1`, set in `ghci-session.json`): an
+The session loads the library COMPILED and optimised (`"optimize": true` in `ghci-session.json`): an
 `eval` or a `bench` on the largest sample runs at the speed of the built library, so what the session
 measures is real. What is typed into `eval` itself is still interpreted: keep loops out of the expression
 and inside functions of the library (a small `DXF.Debug` module of measuring helpers is fine).

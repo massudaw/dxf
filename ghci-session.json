@@ -22,5 +22,5 @@
       }
     }
   },
-  "cabal_args": "--repl-options=-fobject-code --repl-options=-O1 --repl-options=-fno-ignore-interface-pragmas"
+  "optimize": true
 }

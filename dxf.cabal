@@ -65,6 +65,7 @@ library
                     DXF.Tag.Binary
                     DXF.Tag.Out
                     DXF.Tag.Double
+                    DXF.Number.Lemire
                     DXF.Tag.Scan
                     DXF.Json
                     DXF.Codec

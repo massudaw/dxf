@@ -12,6 +12,7 @@ import qualified Data.ByteString.Unsafe as U
 import Data.Bits (shiftL, (.|.))
 import Data.Ratio ((%))
 import Data.Word (Word64)
+import DXF.Number.Lemire (eiselLemire)
 
 isSp :: Int -> Bool
 isSp c = c == 32 || c == 9 || c == 13 || c == 10
@@ -115,7 +116,9 @@ readDouble bs = start 0
           | m == 0 = 0
           | m < 9007199254740992 && e >= 0 && e <= 22 = fromIntegral m * pow10 e
           | m < 9007199254740992 && e < 0 && e >= -22 = fromIntegral m / pow10 (negate e)
-          | otherwise = exact (toInteger m) e
+          | otherwise = case eiselLemire m e of
+                Just d -> d
+                Nothing -> exact (toInteger m) e
     -- too many digits to hold in a Word64: parse with Integer
     slow neg s0 = case exactParse bs s0 of
       Just d -> Just (if neg then negate d else d)

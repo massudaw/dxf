@@ -37,9 +37,27 @@ sig s = length (trim (reverse (trim (reverse ds))))
   where ds = filter isDigit (takeWhile (/= 'e') (BC.unpack s))
         trim = dropWhile (== '0')
 
+-- | Random decimals of 1 to 18 digits with a point and an exponent, as
+-- text: 'readDouble' must give what the (exact) Prelude gives.
+decimals :: [String]
+decimals =
+  [ sign ++ ds ++ ex
+  | (r, i) <- zip (rands 1234567890123456789) [0 .. 300000 :: Int]
+  , let nd = 1 + fromIntegral (r `shiftR` 8) `mod` 18 :: Int
+        digits = take nd (map (\k -> toEnum (48 + fromIntegral ((r `shiftR` (k * 3 + 12)) `mod` 10))) [0 ..]) :: String
+        ds = case fromIntegral (r `shiftR` 5) `mod` (nd + 1) :: Int of
+               0 -> "0." ++ digits
+               k -> take k digits ++ "." ++ drop k digits ++ "0"
+        sign = if even i then "" else "-"
+        e = fromIntegral (r `shiftR` 40) `mod` 80 - 40 :: Int
+        ex = if i `mod` 3 == 0 then "" else "e" ++ show e ]
+
 checks :: [(String, IO Result)]
 checks =
-  [ ("doubles: text reads back to the same double", pure (concat
+  [ ("doubles: readDouble is correctly rounded (300000 random decimals)", pure (concat
+      [ failIf (readDouble (BC.pack s) /= Just (read s)) ("readDouble " ++ s ++ " = " ++ show (readDouble (BC.pack s)) ++ ", exact " ++ show (read s :: Double))
+      | s <- decimals ]))
+  , ("doubles: text reads back to the same double", pure (concat
       [ failIf (readDouble t /= Just x && not (isNaN x)) ("doubleText " ++ show x ++ " = " ++ show t)
       | x <- samplesD, let t = text x ]))
   , ("doubles: text is plain decimal in range, and shortest but for a few", pure (

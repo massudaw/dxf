@@ -46,18 +46,21 @@ slice :: B.ByteString -> Int -> Int -> B.ByteString
 slice bs s e = U.unsafeTake (e - s) (U.unsafeDrop s bs)
 {-# INLINE slice #-}
 
+-- | A group code line: the code (or 'badCode') and where the line ends.
+data C = C {-# UNPACK #-} !Int {-# UNPACK #-} !Int
+
 nextTag :: B.ByteString -> Int -> T
 nextTag bs i
   | i >= n = T endCode 0 0 n
-  | otherwise =
-      let e1 = lineEnd i
-          c = code i e1
-      in if c == badCode then (if allBlank i then T endCode 0 0 n else T badCode 0 0 i)
-         else if e1 >= n then T noValue 0 0 i
-         else let s2 = e1 + 1
-                  e2 = lineEnd s2
-                  ve = if e2 > s2 && U.unsafeIndex bs (e2 - 1) == 13 then e2 - 1 else e2
-              in T c s2 ve (e2 + 1)
+  | otherwise = case codeLine i of
+      C c e1
+        | c == badCode -> if allBlank i then T endCode 0 0 n else T badCode 0 0 i
+        | e1 >= n -> T noValue 0 0 i
+        | otherwise ->
+            let s2 = e1 + 1
+                e2 = lineEnd s2
+                ve = if e2 > s2 && U.unsafeIndex bs (e2 - 1) == 13 then e2 - 1 else e2
+            in T c s2 ve (e2 + 1)
   where
     n = B.length bs
     lineEnd !j = case B.elemIndex 10 (U.unsafeDrop j bs) of
@@ -65,21 +68,22 @@ nextTag bs i
       Nothing -> n
     allBlank !j = j >= n || (blank (U.unsafeIndex bs j) && allBlank (j + 1))
     blank c = c == 32 || c == 9 || c == 10 || c == 13
-    -- group code line: blanks, optional sign, digits, blanks
-    code !a !e = skip a
+    -- group code line: blanks, optional sign, digits, blanks, newline
+    codeLine !a = skip a
       where
-        skip !j | j < e, let c = U.unsafeIndex bs j, c == 32 || c == 9 = skip (j + 1)
-                | j < e, U.unsafeIndex bs j == 45 = digits (j + 1) 0 (j + 1) True
+        skip !j | j < n, let c = U.unsafeIndex bs j, c == 32 || c == 9 = skip (j + 1)
+                | j < n, U.unsafeIndex bs j == 45 = digits (j + 1) 0 (j + 1) True
                 | otherwise = digits j 0 j False
         digits !j !acc !s !neg
-          | j < e, let c = U.unsafeIndex bs j, c >= 48, c <= 57 =
+          | j < n, let c = U.unsafeIndex bs j, c >= 48, c <= 57 =
               digits (j + 1) (acc * 10 + fromIntegral c - 48) s neg
-          | j == s = badCode
+          | j == s = C badCode 0
           | otherwise = trail j (if neg then negate acc else acc)
         trail !j !v
-          | j >= e = v
+          | j >= n = C v n
+          | let c = U.unsafeIndex bs j, c == 10 = C v j
           | let c = U.unsafeIndex bs j, c == 32 || c == 9 || c == 13 = trail (j + 1) v
-          | otherwise = badCode
+          | otherwise = C badCode 0
 {-# INLINE nextTag #-}
 
 -- | The tags from an offset on (which must be the start of a group code

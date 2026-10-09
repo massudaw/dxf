@@ -28,6 +28,14 @@ main = do
   bs <- timed "read" (B.readFile path >>= \b -> evaluate (B.length b) >> return b)
   case mode of
     ["doc"] -> document bs
+    ["parse"] -> do   -- parse and print only: what one document costs to hold
+      d <- timed "parse document" (evaluate (parseDXF bs) >>= either (ioError . userError . show) pure)
+      out <- timed "print document" (evaluate (BL.length (documentBytes d)))
+      putStrLn ("document bytes out: " ++ show out)
+    ["parseonly"] -> do
+      _ <- timed "parse document" (evaluate (parseDXF bs) >>= either (ioError . userError . show) pure)
+      pure ()
+    ["loop"] -> mapM_ (\i -> evaluate (either (const 0) (const i) (parseDXF (B.copy bs)))) [1 .. 30 :: Int]   -- for a sampling profiler
     ["dbl"] -> do
       let xs = [250.24323977301532 + fromIntegral i * 1.0000123456789 | i <- [1 .. 674000 :: Int]] :: [Double]
       _ <- timed "doubleDec x 674000" (evaluate (BL.length (BB.toLazyByteString (foldMap BB.doubleDec xs))))

@@ -1,0 +1,21 @@
+src/DXF/Entity/Poly.hs
+  s_6e55a4691f1b7b::t_d8a714801d0a6f 1-4,7,11-12,15-18,20-26,29-223,225-231
+tools/compare.py
+  s_6e55a4691f1b7b::t_cabb6d51361e7f 110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2dcb7fafb5e1a38c73d2492886bdd45c67eeeceb",
+  "prompts": {},
+  "sessions": {
+    "s_6e55a4691f1b7b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6ec73439-e7f5-55aa-868c-b14d24f000b0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Wesley Massuda <wesley.massuda@gmail.com>"
+    }
+  }
+}

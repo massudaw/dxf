@@ -15,6 +15,7 @@ import qualified Data.ByteString.Builder as BB
 import DXF.Tag
 import DXF.Tag.Binary
 import DXF.Tag.Double
+import DXF.Tag.Prim
 import DXF.Vec
 
 type Out = Fmt -> BB.Builder
@@ -40,17 +41,20 @@ txt f c v = code f c <> eol f <> v <> eol f
 tS :: Int -> B.ByteString -> Out
 tS c s f
   | fmtBinary f = binS (fmtR12 f) c s
-  | otherwise = txt f c (BB.byteString s)
+  | otherwise = bytesTag (fmtPad f) (fmtCRLF f) c s (txt f c (BB.byteString s))
+{-# INLINE tS #-}
 
 tD :: Int -> Double -> Out
 tD c d f
   | fmtBinary f = binD (fmtR12 f) c d
-  | otherwise = txt f c (doubleText d)
+  | otherwise = doubleTag (fmtPad f) (fmtCRLF f) c d (txt f c (doubleText d))
+{-# INLINE tD #-}
 
 tI :: Int -> Int -> Out
 tI c i f
   | fmtBinary f = binI (fmtR12 f) c i
-  | otherwise = txt f c (BB.intDec i)
+  | otherwise = intTag (fmtPad f) (fmtCRLF f) c i
+{-# INLINE tI #-}
 
 -- | A boolean (0 or 1).
 tB :: Int -> Bool -> Out
@@ -71,7 +75,8 @@ tTags ts f = foldMap (\t -> tRaw t f) ts
 
 -- | x, y, z at group codes c, c+10, c+20.
 tV3 :: Int -> V3 -> Out
-tV3 c (V3 x y z) = tD c x <> tD (c + 10) y <> tD (c + 20) z
+tV3 c (V3 x y z) f = tD c x f <> tD (c + 10) y f <> tD (c + 20) z f
+{-# INLINE tV3 #-}
 
 -- | x and y only.
 tV2 :: Int -> V2 -> Out
@@ -82,17 +87,21 @@ tV3z :: Int -> V3 -> Out
 tV3z c (V3 x y z) = tD c x <> tD (c + 10) y <> (if z == 0 then mempty else tD (c + 20) z)
 
 tMaybeS :: Int -> Maybe B.ByteString -> Out
-tMaybeS c = maybe mempty (tS c)
+tMaybeS c m f = case m of Nothing -> mempty; Just s -> tS c s f
+{-# INLINE tMaybeS #-}
 
 tMaybeD :: Int -> Maybe Double -> Out
-tMaybeD c = maybe mempty (tD c)
+tMaybeD c m f = case m of Nothing -> mempty; Just d -> tD c d f
+{-# INLINE tMaybeD #-}
 
 tMaybeI :: Int -> Maybe Int -> Out
-tMaybeI c = maybe mempty (tI c)
+tMaybeI c m f = case m of Nothing -> mempty; Just i -> tI c i f
+{-# INLINE tMaybeI #-}
 
 -- | A subclass marker (@100@), which R12 does not have.
 tMarker :: B.ByteString -> Out
-tMarker name = tIfR2000 (tS 100 name)
+tMarker name f = if fmtR12 f then mempty else tS 100 name f
+{-# INLINE tMarker #-}
 
 -- | Output that only exists after R12.
 tIfR2000 :: Out -> Out

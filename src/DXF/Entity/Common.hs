@@ -107,17 +107,17 @@ field k v c = case k of
 -- | @0 TYPE@, handle, application data, owner, and for graphical
 -- entities the @AcDbEntity@ subclass.
 commonHead :: Bool -> B.ByteString -> Common -> Out
-commonHead graphic ty c =
-  tS 0 ty <> tMaybeS 5 (cHandle c) <> foldMap tTags (cAppData c) <> tMaybeS 330 (cOwner c)
+commonHead graphic ty c f =
+  tS 0 ty f <> tMaybeS 5 (cHandle c) f <> foldMap tTags (cAppData c) f <> tMaybeS 330 (cOwner c) f
   <> (if graphic then ent else mempty)
   where
     m = cMore c
-    ent = tMarker "AcDbEntity" <> tMaybeI 67 (cPaperspace c) <> tMaybeS 8 (cLayer c)
-      <> tMaybeS 6 (cLinetype c) <> tMaybeI 62 (cColor c) <> tMaybeI 370 (cLineweight c)
-      <> tMaybeD 48 (cLtScale c) <> tMaybeI 60 (mInvisible m) <> tMaybeI 420 (mTrueColor m)
-      <> tMaybeS 430 (mColorName m) <> tMaybeI 440 (mTransparency m) <> tMaybeI 284 (mShadow m)
-      <> tMaybeS 347 (mMaterial m) <> tMaybeS 348 (mVisualStyle m) <> tMaybeI 380 (mPlotStyleEnum m)
-      <> tMaybeS 390 (mPlotStyle m)
+    ent = tMarker "AcDbEntity" f <> tMaybeI 67 (cPaperspace c) f <> tMaybeS 8 (cLayer c) f
+      <> tMaybeS 6 (cLinetype c) f <> tMaybeI 62 (cColor c) f <> tMaybeI 370 (cLineweight c) f
+      <> tMaybeD 48 (cLtScale c) f <> tMaybeI 60 (mInvisible m) f <> tMaybeI 420 (mTrueColor m) f
+      <> tMaybeS 430 (mColorName m) f <> tMaybeI 440 (mTransparency m) f <> tMaybeI 284 (mShadow m) f
+      <> tMaybeS 347 (mMaterial m) f <> tMaybeS 348 (mVisualStyle m) f <> tMaybeI 380 (mPlotStyleEnum m) f
+      <> tMaybeS 390 (mPlotStyle m) f
 
 -- | What nothing understood, then the extended data.
 commonTail :: Common -> Out

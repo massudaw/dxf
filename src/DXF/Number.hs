@@ -76,7 +76,7 @@ readDouble bs = start 0
       | at bs i == 43 = int (i + 1) False i
       | otherwise = int i False i
     -- integer part; m = mantissa, nd = significant digits kept
-    int !i !neg !s0 = ints i 0 0 (0 :: Int)
+    int !i !neg !s0 = ints i 0 (0 :: Int) (0 :: Int)
       where
         ints !j !m !nd !any_
           | j < n, let c = at bs j, c >= 48, c <= 57 =

@@ -13,6 +13,7 @@ import qualified Data.ByteString.Lazy as BL
 import GHC.Clock (getMonotonicTime)
 import System.Environment (getArgs)
 import DXF
+import DXF.Number.Lemire (eiselLemire)
 
 timed :: String -> IO a -> IO a
 timed name act = do
@@ -36,9 +37,21 @@ main = do
       _ <- timed "parse document" (evaluate (parseDXF bs) >>= either (ioError . userError . show) pure)
       pure ()
     ["loop"] -> mapM_ (\i -> evaluate (either (const 0) (const i) (parseDXF (B.copy bs)))) [1 .. 30 :: Int]   -- for a sampling profiler
+    ["printloop"] -> case parseDXF bs of   -- for a sampling profiler
+      Right d -> mapM_ (\i -> evaluate (BL.length (documentBytes d) + i)) [1 .. 30]
+      Left e -> ioError (userError (show e))
+    ["init"] -> do   -- the one-time tables of the number code
+      _ <- timed "first eiselLemire (builds its table)" (evaluate (eiselLemire 17882 (-3)))
+      _ <- timed "first doubleText (builds its table)" (evaluate (BL.length (BB.toLazyByteString (doubleText 2.5))))
+      pure ()
+    ["dloop"] -> do   -- for a sampling profiler
+      let xs = [250.24323977301532 + fromIntegral i * 1.0000123456789 | i <- [1 .. 674000 :: Int]] :: [Double]
+      _ <- evaluate (length xs)
+      mapM_ (\k -> evaluate (BL.length (BB.toLazyByteString (foldMap (\x -> tD 10 (x + fromIntegral k) (Fmt False False False False)) xs)))) [1 .. 40 :: Int]
     ["dbl"] -> do
       let xs = [250.24323977301532 + fromIntegral i * 1.0000123456789 | i <- [1 .. 674000 :: Int]] :: [Double]
       _ <- timed "doubleDec x 674000" (evaluate (BL.length (BB.toLazyByteString (foldMap BB.doubleDec xs))))
+      _ <- timed "doubleText x 674000" (evaluate (BL.length (BB.toLazyByteString (foldMap (\x -> tD 10 x (Fmt False False False False)) xs))))
       _ <- timed "intDec x 674000" (evaluate (BL.length (BB.toLazyByteString (foldMap (BB.intDec . round) xs))))
       pure ()
     ["scan"] -> do

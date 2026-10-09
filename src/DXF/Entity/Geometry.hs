@@ -7,6 +7,7 @@ module DXF.Entity.Geometry
 import Control.DeepSeq (NFData)
 import GHC.Generics (Generic)
 import DXF.Codec
+import DXF.Tag.Out
 import DXF.Vec
 
 -- | The simple geometric entities.  Optional attributes are 'Maybe': set
@@ -153,9 +154,18 @@ xlineCodec = codec (XLine v3zero (V3 0 0 1))
   , pt3 "start" 10 (lens xlStart (\r v -> r { xlStart = v }))
   , pt3 "unit_vector" 11 (lens xlDirection (\r v -> r { xlDirection = v })) ]
 
+-- | A LINE written without the field table: 'lineCodec' says the same
+-- (the test suite compares the two on every sample), only slower, and
+-- LINEs are most of what a drawing holds.
+lineOut :: Line -> Out
+lineOut (Line a b th ext) f =
+  tMarker "AcDbLine" f <> tV3 10 a f <> tV3 11 b f <> tMaybeD 39 th f
+  <> (case ext of Nothing -> mempty; Just v -> tV3 210 v f)
+
 geoCodecs :: [BodyCodec GeoBody]
 geoCodecs =
-  [ entityCodec "LINE" True lineCodec GLine (\g -> case g of GLine r -> Just r; _ -> Nothing)
+  [ (entityCodec "LINE" True lineCodec GLine (\g -> case g of GLine r -> Just r; _ -> Nothing))
+      { bcEncode = \g -> case g of GLine r -> lineOut r; _ -> mempty }
   , entityCodec "POINT" True pointCodec GPoint (\g -> case g of GPoint r -> Just r; _ -> Nothing)
   , entityCodec "CIRCLE" True circleCodec GCircle (\g -> case g of GCircle r -> Just r; _ -> Nothing)
   , entityCodec "ARC" True arcCodec GArc (\g -> case g of GArc r -> Just r; _ -> Nothing)

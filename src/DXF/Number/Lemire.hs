@@ -10,7 +10,7 @@ module DXF.Number.Lemire
   ) where
 
 import Data.Array.Base (unsafeAt)
-import Data.Array.Unboxed (UArray, listArray)
+import Data.Array (Array, listArray)
 import Data.Bits
 import Data.Word (Word64)
 import GHC.Exts (Word (..), timesWord2#)
@@ -19,10 +19,10 @@ import GHC.Float (castWord64ToDouble)
 -- | The 128 bits of 5^q, normalised (high bit set), for q in -342..308 as
 -- (high word, low word) pairs.  Negative powers are rounded up, the rest
 -- truncated, as the algorithm requires.
-table :: UArray Int Word
-table = listArray (0, 2 * 651 - 1) (concatMap split entries)
+table :: Array Int (Word, Word)
+table = listArray (0, 650) (map split entries)   -- lazy: an entry is computed when first used
   where
-    split c = [fromInteger (c `shiftR` 64), fromInteger (c .&. (2 ^ (64 :: Int) - 1))]
+    split c = (fromInteger (c `shiftR` 64), fromInteger (c .&. (2 ^ (64 :: Int) - 1)))
     entries = [neg q | q <- [-342 .. -1]] ++ [pos q | q <- [0 .. 308]]
     neg :: Int -> Integer
     neg q =
@@ -50,9 +50,7 @@ eiselLemire w0 q
       let w = fromIntegral w0 :: Word
           lz = countLeadingZeros w
           wn = w `unsafeShiftL` lz
-          idx = 2 * (q + 342)
-          thi = unsafeAt table idx
-          tlo = unsafeAt table (idx + 1)
+          (thi, tlo) = unsafeAt table (q + 342)
       in case mul128 wn thi of
            (# h1, l1 #)
              | h1 .&. 0x1ff == 0x1ff -> case mul128 wn tlo of

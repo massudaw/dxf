@@ -1,0 +1,23 @@
+PERF.md
+  s_ee2f22f51d8bdb::t_401cb99c06d986 3-6,8-22,26,28,30-35
+app/Bench.hs
+  s_ee2f22f51d8bdb::t_29d85ea1a47db2 1-2,23,25-39
+dxf.cabal
+  s_ee2f22f51d8bdb::t_abf6c567091969 53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "54a1d2721dbb99140fd1c1754a765365a807683d",
+  "prompts": {},
+  "sessions": {
+    "s_ee2f22f51d8bdb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3863f128-df4e-5080-b64f-79e6e4bdb05e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Wesley Massuda <wesley.massuda@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+test/Check/Hatch.hs
+  s_ee2f22f51d8bdb::t_0c350838a0b54d 2,9
+test/data/hatch.dxf
+  s_ee2f22f51d8bdb::t_977fbe6c98ace3 1-3522
+test/data/hatch_r2000.dxf
+  s_ee2f22f51d8bdb::t_f495f90e000dc5 1-3176
+tools/gen_hatch.py
+  s_ee2f22f51d8bdb::t_d72de75e8b972c 1-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "22b3cd08b6f2677bc2be6b14956448d38b28a141",
+  "prompts": {},
+  "sessions": {
+    "s_ee2f22f51d8bdb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3863f128-df4e-5080-b64f-79e6e4bdb05e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Wesley Massuda <wesley.massuda@gmail.com>"
+    }
+  }
+}

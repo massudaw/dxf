@@ -1,0 +1,35 @@
+.gitignore
+  s_ee2f22f51d8bdb::t_be9a2ef6940728 1-7
+AGENTS.md
+  s_6e55a4691f1b7b::t_035066f9f21603 1-56
+cabal.project
+  s_ee2f22f51d8bdb::t_fa4183723d42cb 1
+dxf.cabal
+  s_ee2f22f51d8bdb::t_d3ab0e785a7095 26
+ghci-session.json
+  s_6e55a4691f1b7b::t_b8927ccac47881 1-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dfd372d4b19817539846b133ad0a13c341fd33e6",
+  "prompts": {},
+  "sessions": {
+    "s_6e55a4691f1b7b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6ec73439-e7f5-55aa-868c-b14d24f000b0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Wesley Massuda <wesley.massuda@gmail.com>"
+    },
+    "s_ee2f22f51d8bdb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3863f128-df4e-5080-b64f-79e6e4bdb05e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Wesley Massuda <wesley.massuda@gmail.com>"
+    }
+  }
+}

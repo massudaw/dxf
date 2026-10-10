@@ -65,6 +65,20 @@ main = do
                let js = [v | Just v <- vs]
                putStrLn (name ++ ": " ++ show (length js) ++ " held, " ++ show (Set.size (Set.fromList js))
                          ++ " distinct values, " ++ show (Set.size (Set.fromList (map place js))) ++ " distinct in memory")) fields
+    ["table"] -> do   -- one line: size, cold parse/print (first run), steady parse/print (min of a loop)
+      let sz = B.length bs
+          ms t = fromIntegral (round (t * 10000) :: Int) / 10 :: Double
+          mbs t = fromIntegral (round (fromIntegral sz / t / 1e5) :: Int) / 10 :: Double
+          clock act = do { t0 <- getMonotonicTime; r <- act; t1 <- getMonotonicTime; pure (r, t1 - t0) }
+          parseOf b = evaluate (parseDXF b) >>= either (ioError . userError . show) pure
+      (d, cp) <- clock (parseOf bs)
+      (_, cw) <- clock (evaluate (BL.length (documentBytes d)))
+      let n = max 5 (min 300 (round (1.0 / max 0.0005 cp))) :: Int
+      sp <- fmap minimum (mapM (\i -> do { b <- evaluate (B.copy bs); snd <$> clock (parseOf b >>= \x -> evaluate (rnf x) >> pure i) }) [1 .. n])
+      sw <- fmap minimum (mapM (\i -> snd <$> clock (evaluate (BL.length (documentBytes d) + fromIntegral i))) [1 .. n])
+      putStrLn (path ++ ": size " ++ show sz ++ " | cold parse " ++ show (ms cp) ++ " ms " ++ show (mbs cp) ++ " MB/s, print "
+                ++ show (ms cw) ++ " ms " ++ show (mbs cw) ++ " MB/s | loop(" ++ show n ++ ") parse " ++ show (ms sp) ++ " ms "
+                ++ show (mbs sp) ++ " MB/s, print " ++ show (ms sw) ++ " ms " ++ show (mbs sw) ++ " MB/s")
     ["parseonly"] -> do
       _ <- timed "parse document" (evaluate (parseDXF bs) >>= either (ioError . userError . show) pure)
       pure ()

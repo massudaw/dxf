@@ -11,16 +11,40 @@ from `/usr/bin/time -l`).  ezdxf 1.4.4 on Python 3.14: `tools/perf_ezdxf.py` (pe
 `Document` to bytes.  Both outputs are checked: the printed file parses to the same `Document`, and
 every sample and fixture is compared with ezdxf (`Check.run`).  Best of three runs.
 
-| file | size | parse | MB/s | print | MB/s | max residency | peak RSS | ezdxf read | ezdxf write | ezdxf RSS |
-|------|-----:|------:|-----:|------:|-----:|--------------:|---------:|-----------:|------------:|----------:|
-| f001.dxf (112,322 LINE) | 19.3 MB | 138 ms | 140 | 85 ms | 228 | 43 MB | 83 MB | 3.35 s | 3.65 s | 263 MB |
-| CPQ-SPS-ZZ-ZZ-DR-A-0005 | 509 KB | 15 ms | 34 | 19 ms | 27 | 2.8 MB | 20 MB | 0.251 s | 0.300 s | 62 MB |
-| condo_A-301_arch-elevation | 470 KB | 14 ms | 34 | 18 ms | 26 | 2.7 MB | 19 MB | 0.228 s | 0.282 s | 62 MB |
+The ten largest samples (`samples/3CG` is a second copy of f001 and is left out; `*` marks the two small
+files this round works on).  Measured with the executable (`dxf-bench FILE table`, a fresh process per file):
 
-Before this round (commit 54a1d27): f001 parse 410 ms (47 MB/s), print 720 ms, residency 100 MB,
-RSS 227 MB; CPQ 18/32 ms, condo 17/31 ms.  f001 is now parsed 24 times and printed 43 times faster than
-ezdxf, and a parsed file is held in 2.2 times its size (RSS 4.3 times).  The two small files are
-POLYLINE/VERTEX/TEXT drawings that go through the general field-table codecs: they are the next target.
+* **cold** is the first parse (or print) in the process, code not yet warm; **loop** is the best of N repeats
+  in the same process (N = 7 for f001, 57-300 for the rest; each repeat parses a fresh copy of the input,
+  GC included) -- the same figures come out of `bench` with `opt: 2`, `unit: exe:dxf-bench` and the args
+  `["FILE","table"]` (the session's process is warm before the first call, so only its loop figures mean something);
+* **max residency** is GHC's "maximum residency" of `dxf-bench FILE parse +RTS -s` (the parsed document, the
+  input bytes and the printed output of one run);
+* **ezdxf** is `tools/perf_ezdxf.py` (`ezdxf.readfile`, `doc.write` to a `StringIO`), peak RSS from
+  `/usr/bin/time -l` (it includes ~55 MB of interpreter and imports).
+
+| file | size | parse cold ms | MB/s | parse loop ms | MB/s | print cold ms | MB/s | print loop ms | MB/s | max residency | ezdxf read ms | MB/s | ezdxf write ms | MB/s | ezdxf peak RSS |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| f001.dxf (112,322 LINE) | 19.35 MB | 146.9 | 132 | 130.8 | 148 | 109.8 | 176 | 90.6 | 214 | 44.20 MB | 3279 | 5.9 | 3538 | 5.5 | 263 MB |
+| CPQ-SPS-ZZ-ZZ-DR-A-0005 * | 0.51 MB | 12.2 | 42 | 9.8 | 52 | 7.0 | 73 | 3.1 | 164 | 3.87 MB | 275 | 1.9 | 298 | 1.7 | 64 MB |
+| condo_A-301_arch-elevation * | 0.47 MB | 10.3 | 46 | 9.0 | 52 | 6.0 | 78 | 2.9 | 162 | 3.59 MB | 227 | 2.1 | 278 | 1.7 | 62 MB |
+| CPQ-SPS-ZZ-ZZ-DR-S-0003 | 0.33 MB | 3.4 | 98 | 2.2 | 151 | 7.4 | 45 | 4.8 | 69 | 1.75 MB | 106 | 3.1 | 113 | 2.9 | 57 MB |
+| CPQ-SPS-ZZ-ZZ-DR-A-0006 | 0.18 MB | 3.4 | 52 | 2.8 | 64 | 3.7 | 48 | 1.3 | 137 | 1.43 MB | 90 | 2.0 | 104 | 1.7 | 56 MB |
+| condo_S-103_frame | 0.17 MB | 1.6 | 105 | 1.1 | 152 | 5.0 | 34 | 2.4 | 70 | 0.85 MB | 59 | 2.8 | 58 | 2.9 | 54 MB |
+| sao_jorge_FP-101_plan | 0.16 MB | 3.0 | 52 | 2.0 | 78 | 3.2 | 49 | 1.0 | 157 | 1.19 MB | 82 | 1.9 | 78 | 2.0 | 56 MB |
+| sao_jorge_FP-102_riser | 0.15 MB | 3.2 | 48 | 2.0 | 77 | 3.3 | 47 | 1.1 | 141 | 1.18 MB | 83 | 1.9 | 79 | 2.0 | 57 MB |
+| condo_A-201_arch-section | 0.14 MB | 2.9 | 50 | 2.1 | 69 | 3.3 | 44 | 1.1 | 131 | 1.19 MB | 75 | 1.9 | 83 | 1.7 | 56 MB |
+| CPQ-SPS-ZZ-ZZ-DR-E-0001 | 0.13 MB | 1.4 | 94 | 0.9 | 146 | 3.5 | 38 | 0.9 | 146 | 0.31 MB | 58 | 2.3 | 45 | 2.9 | 55 MB |
+
+The machine was lightly loaded (load average 3.7); loop figures move by 10-20 % between runs.  f001 is parsed
+24 times and printed 39 times faster than ezdxf (cold), the two small files 22 and 38 times faster, and a
+parsed f001 is held in 2.3 times its size.  Parse is above 100 MB/s on f001 (132 cold), on S-0003, S-103 and
+E-0001 (mostly LINE and a few entities, 94-105 cold); the files made of POLYLINE/VERTEX (the two `*`) or TEXT-heavy
+drawings are at 42-52 MB/s: they are the target of the allocation work below.  Print of the files that
+use entities without a fast writer (S-0003, S-103, E-0001: TEXT, MTEXT, LWPOLYLINE) is slower than their parse.
+
+Before the optimisation round (commit 54a1d27): f001 parse 410 ms (47 MB/s), print 720 ms, residency 100 MB,
+RSS 227 MB; CPQ 18/32 ms, condo 17/31 ms.
 
 ### What each step bought (f001, `dxf-bench FILE parse`, ms, best of three)
 

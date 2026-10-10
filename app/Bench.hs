@@ -68,7 +68,7 @@ main = do
     ["parseonly"] -> do
       _ <- timed "parse document" (evaluate (parseDXF bs) >>= either (ioError . userError . show) pure)
       pure ()
-    ["loop"] -> mapM_ (\i -> evaluate (either (const 0) (const i) (parseDXF (B.copy bs)))) [1 .. 30 :: Int]   -- for a sampling profiler
+    ["loop"] -> mapM_ (\i -> evaluate (either (const 0) (const i) (parseDXF (B.copy bs)))) [1 .. 400 :: Int]   -- for a sampling profiler
     ["printloop"] -> case parseDXF bs of   -- for a sampling profiler
       Right d -> mapM_ (\i -> evaluate (BL.length (documentBytes d) + i)) [1 .. 30]
       Left e -> ioError (userError (show e))

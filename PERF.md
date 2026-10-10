@@ -119,6 +119,22 @@ them with the general decoder on every sample and fixture ("fast decoders read w
 (The machine ran slower than when the earlier tables were made; all rows here are one session.)
 The small files still print slower than they parse: next, fast writers.
 
+## Fast writers for the usual entities
+
+`DXF.Entity.FastOut.fastOut` writes LINE, VERTEX, POLYLINE, SEQEND and INSERT as one primitive each (the head
+by `headWriter`, the fields by `putDoubleTag`/`putIntTag`/`putBytesTag`), when the head is plain, there is no
+extended data, strings are short and numbers plain decimal; children (a POLYLINE's vertices) follow through
+`encodeEntity`.  Anything else takes the codec path (`encodeGeneral`).  The suite writes every entity of every
+sample and fixture (blocks too, children included) both ways in all eight layouts and compares the bytes.
+
+| file (best of five, ms; the machine was loaded, compare within a row) | print before | print after |
+|------|----:|----:|
+| CPQ-SPS-ZZ-ZZ-DR-A-0005 | 23.0 | 6.9 |
+| condo_A-301 | 22.6 | 6.6 |
+| f001 (interleaved best of ten) | 102.6 | 100.3 |
+
+The small files now print faster than they parse (12 ms).
+
 ## What is left
 
 * Fast decoders and writers for the other usual entities (VERTEX, LWPOLYLINE, TEXT, INSERT, CIRCLE, ARC):

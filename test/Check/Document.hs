@@ -81,10 +81,12 @@ lineOutAgrees f = attempt f $ do
   return $ case r of
     Left e -> [f ++ ": does not parse: " ++ show e]
     Right d -> concat
-      [ failIf (out fmt (encodeEntity e) /= out fmt (encodeGeneral e)) (f ++ ": LINE written differently: " ++ show e)
-      | SEntities es <- docSections d, e <- take 20000 es
+      [ failIf (out fmt (encodeEntity e) /= out fmt (encodeGeneral e)) (f ++ ": entity written differently: " ++ show e)
+      | e <- take 20000 (concatMap (\x -> x : eKids x) (entitiesOf d))
       , fmt <- [Fmt False a b c | a <- [False, True], b <- [False, True], c <- [False, True]] ]
-  where out fmt o = BL.toStrict (BB.toLazyByteString (o fmt))
+  where
+    out fmt o = BL.toStrict (BB.toLazyByteString (o fmt))
+    entitiesOf d = docEntities d ++ concatMap (\b -> blockEntities b) (docBlocks d)
 
 fixtures :: IO [FilePath]
 fixtures = map ("test/data/" ++) . filter (isSuffixOf ".dxf") <$> listDirectory "test/data"
@@ -94,5 +96,5 @@ checks =
   [ ("document: parse, print, parse again, nothing lost (every sample)", allSamples)
   , ("document: fast decoders read what the general one reads (samples, fixtures)"
     , do fs <- (++) <$> sampleFiles <*> fixtures; concat <$> mapM fastAgrees fs)
-  , ("document: a LINE written in one primitive is what the codecs write (samples, fixtures)"
+  , ("document: an entity written in one primitive is what the codecs write (samples, fixtures)"
     , do fs <- (++) <$> sampleFiles <*> fixtures; concat <$> mapM lineOutAgrees fs) ]

@@ -3,7 +3,7 @@
 -- SPLINE, INSERT.  A POLYLINE's vertices and SEQEND, an INSERT's
 -- attributes and SEQEND are the 'DXF.Entity.eKids' of the entity.
 module DXF.Entity.Poly
-  ( PolyBody (..), polyCodecs
+  ( PolyBody (..), polyCodecs, polylineMarker, vertexMarker
   , LwPolyline (..), LwVertex (..), Polyline (..), Vertex (..), Insert (..), Spline (..)
   ) where
 
@@ -141,7 +141,7 @@ lwCodec = codec (LwPolyline 0 Nothing Nothing Nothing Nothing [])
 polylineCodec :: Codec Polyline
 polylineCodec = codec (Polyline 1 v3zero 0 Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing)
   [ markR "AcDb2dPolyline", markR "AcDb3dPolyline", markR "AcDbPolygonMesh", markR "AcDbPolyFaceMesh"
-  , custom "" [] (\_ _ _ -> Nothing) (\r -> tMarker (marker (plFlags r))) (const Nothing) id
+  , custom "" [] (\_ _ _ -> Nothing) (\r -> tMarker (polylineMarker (plFlags r))) (const Nothing) id
   , int "" 66 (lens plFollow (\r v -> r { plFollow = v }))
   , pt3 "elevation" 10 (lens plElevation (\r v -> r { plElevation = v }))
   , int "flags" 70 (lens plFlags (\r v -> r { plFlags = v }))
@@ -154,17 +154,24 @@ polylineCodec = codec (Polyline 1 v3zero 0 Nothing Nothing Nothing Nothing Nothi
   , mint "smooth_type" 75 (lens plSmoothType (\r v -> r { plSmoothType = v }))
   , mdbl "thickness" 39 (lens plThickness (\r v -> r { plThickness = v }))
   , mpt3 "extrusion" 210 (lens plExtrusion (\r v -> r { plExtrusion = v })) ]
-  where
-    marker f | f .&. 64 /= 0 = "AcDbPolyFaceMesh"
-             | f .&. 16 /= 0 = "AcDbPolygonMesh"
-             | f .&. 8 /= 0 = "AcDb3dPolyline"
-             | otherwise = "AcDb2dPolyline"
+
+-- | The subclass marker a POLYLINE (VERTEX) of these flags is written with.
+polylineMarker, vertexMarker :: Int -> B.ByteString
+polylineMarker f | f .&. 64 /= 0 = "AcDbPolyFaceMesh"
+                 | f .&. 16 /= 0 = "AcDbPolygonMesh"
+                 | f .&. 8 /= 0 = "AcDb3dPolyline"
+                 | otherwise = "AcDb2dPolyline"
+vertexMarker f | f .&. 192 == 192 = "AcDbPolyFaceMeshVertex"
+               | f .&. 128 /= 0 = "AcDbFaceRecord"
+               | f .&. 64 /= 0 = "AcDbPolygonMeshVertex"
+               | f .&. 32 /= 0 = "AcDb3dPolylineVertex"
+               | otherwise = "AcDb2dVertex"
 
 vertexCodec :: Codec Vertex
 vertexCodec = codec (Vertex v3zero Nothing Nothing Nothing 0 Nothing Nothing Nothing Nothing Nothing Nothing)
   [ markR "AcDbVertex", markR "AcDb2dVertex", markR "AcDb3dPolylineVertex", markR "AcDbPolygonMeshVertex"
   , markR "AcDbPolyFaceMeshVertex", markR "AcDbFaceRecord"
-  , custom "" [] (\_ _ _ -> Nothing) (\r -> tMarker "AcDbVertex" <> tMarker (marker (vxFlags r))) (const Nothing) id
+  , custom "" [] (\_ _ _ -> Nothing) (\r -> tMarker "AcDbVertex" <> tMarker (vertexMarker (vxFlags r))) (const Nothing) id
   , pt3 "location" 10 (lens vxLocation (\r v -> r { vxLocation = v }))
   , mdbl "start_width" 40 (lens vxStartWidth (\r v -> r { vxStartWidth = v }))
   , mdbl "end_width" 41 (lens vxEndWidth (\r v -> r { vxEndWidth = v }))
@@ -176,12 +183,6 @@ vertexCodec = codec (Vertex v3zero Nothing Nothing Nothing 0 Nothing Nothing Not
   , mint "vtx2" 73 (lens vxIndex3 (\r v -> r { vxIndex3 = v }))
   , mint "vtx3" 74 (lens vxIndex4 (\r v -> r { vxIndex4 = v }))
   , mint "vertex_identifier" 91 (lens vxId (\r v -> r { vxId = v })) ]
-  where
-    marker f | f .&. 192 == 192 = "AcDbPolyFaceMeshVertex"
-             | f .&. 128 /= 0 = "AcDbFaceRecord"
-             | f .&. 64 /= 0 = "AcDbPolygonMeshVertex"
-             | f .&. 32 /= 0 = "AcDb3dPolylineVertex"
-             | otherwise = "AcDb2dVertex"
 
 -- -------------------------------------------------------------------- INSERT
 

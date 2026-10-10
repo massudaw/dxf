@@ -73,8 +73,8 @@ decodeEntity (Tag _ ty : rest) = case M.lookup ty registry of
 
 -- | Write an entity and its children.
 encodeEntity :: Entity -> Out
-encodeEntity en f = case fastLineOut f en of
-  Just o -> o
+encodeEntity en f = case fastOut f en of
+  Just o -> o <> foldMap (\k -> encodeEntity k f) (eKids en)
   Nothing -> encodeGeneral en f
 
 -- | The same through the codecs only ('encodeEntity' writes the usual LINE

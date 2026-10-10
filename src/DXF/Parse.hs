@@ -14,6 +14,8 @@ import DXF.Classes
 import DXF.Document
 import DXF.Entity
 import DXF.Entity.Fast
+import DXF.Entity.Interned
+import DXF.Intern
 import DXF.Header
 import DXF.Tables
 import DXF.Tag
@@ -41,11 +43,18 @@ parseDocument = parseWith True
 parseWith :: Bool -> B.ByteString -> Document
 parseWith fast bs = Document fmt' pre secs
   where
+    tbl = newTable bs
     (fmt, ts) = scanTags bs
     (pre, rest) = break isSection ts
-    secs = sections (if fmtBinary fmt || not fast then Nothing else Just bs) rest
+    secs = sections tbl (if fmtBinary fmt || not fast then Nothing else Just bs) rest
     hdr = case [h | SHeader h <- secs] of (h : _) -> h; [] -> Header [] []
     fmt' = fmt { fmtR12 = headerIsR12 hdr }
+
+-- | The table of strings for one parse (it depends on the input, so that
+-- two parses never share one by accident of floating).
+newTable :: B.ByteString -> Interner
+newTable bs = unsafePerformIO (B.length bs `seq` newInterner)
+{-# NOINLINE newTable #-}
 
 isSection :: Tag -> Bool
 isSection (Tag 0 "SECTION") = True
@@ -53,12 +62,12 @@ isSection _ = False
 
 -- | The sections.  For a text file the bytes are given, so that entities
 -- can be read from them directly ('fastEntity').
-sections :: Maybe B.ByteString -> [Tag] -> [Section]
-sections src (Tag 0 "SECTION" : Tag 2 name : rest) =
-  let (s, rest') = section src (trim name) rest in s `seq` (s : sections src rest')
-sections _ (Tag 0 "EOF" : _) = []
-sections _ [] = []
-sections _ (Tag c v : _) = throw (DxfError 0 ("unexpected tag outside a section: " <> v <> " (group code " <> B.pack (map (fromIntegral . fromEnum) (show c)) <> ")"))
+sections :: Interner -> Maybe B.ByteString -> [Tag] -> [Section]
+sections tbl src (Tag 0 "SECTION" : Tag 2 name : rest) =
+  let (s, rest') = section tbl src (trim name) rest in s `seq` (s : sections tbl src rest')
+sections _ _ (Tag 0 "EOF" : _) = []
+sections _ _ [] = []
+sections _ _ (Tag c v : _) = throw (DxfError 0 ("unexpected tag outside a section: " <> v <> " (group code " <> B.pack (map (fromIntegral . fromEnum) (show c)) <> ")"))
 
 trim :: B.ByteString -> B.ByteString
 trim = B.dropWhileEnd (== 32)
@@ -80,36 +89,34 @@ chunkLoop f = go []
       in go (x : acc) more
 
 -- | The entities of a section, up to its @ENDSEC@: the usual ones read
--- from the bytes, the rest from their tags.  Each is forced and shares
--- layer and owner with the one before.
-entityLoop :: Maybe B.ByteString -> [Tag] -> ([Entity], [Tag])
-entityLoop src = go []
+-- from the bytes, the rest from their tags.  Each is forced, its repeated
+-- strings interned.
+entityLoop :: Interner -> Maybe B.ByteString -> [Tag] -> ([Entity], [Tag])
+entityLoop tbl src = go []
   where
     go !acc (Tag 0 "ENDSEC" : rest) = (reverse acc, rest)
     go !acc [] = (reverse acc, [])
     go !acc (t : rest)
-      | Tag 0 ty <- t, Just bs <- src, Just (e, q) <- fastEntity bs prev ty = go (e : acc) (scanFrom bs q)
+      | Tag 0 ty <- t, Just bs <- src, Just (e, q) <- fastEntity tbl bs ty = go (e : acc) (scanFrom bs q)
       | otherwise =
           let (body, more) = break isZero rest
-              e0 = decodeEntity (t : body)
-              !x = force e0 { eCommon = shareCommon (eCommon <$> prev) (eCommon e0) }
+              !x = force (internEntity tbl (decodeEntity (t : body)))
           in go (x : acc) more
-      where prev = case acc of (e : _) -> Just e; [] -> Nothing
 
-section :: Maybe B.ByteString -> B.ByteString -> [Tag] -> (Section, [Tag])
-section src name ts = case name of
+section :: Interner -> Maybe B.ByteString -> B.ByteString -> [Tag] -> (Section, [Tag])
+section tbl src name ts = case name of
   "HEADER" -> let (body, rest) = splitEnd ts in (SHeader (force (headerFromTags body)), rest)
-  "CLASSES" -> let (cs, rest) = chunkLoop (\_ b -> classFromTags b) ts in (SClasses cs, rest)
+  "CLASSES" -> let (cs, rest) = chunkLoop (\_ b -> internClass tbl (classFromTags b)) ts in (SClasses cs, rest)
   "TABLES" ->
     let (chunks, rest) = chunkLoop (\t b -> t : b) ts
-    in (STables (force (tablesFromChunks decodeEntity chunks)), rest)
+    in (STables (force (tablesFromChunks (internEntity tbl . decodeEntity) chunks)), rest)
   "BLOCKS" -> let (es, rest) = entities ts in (SBlocks (force (groupBlocks es)), rest)
   "ENTITIES" -> let (es, rest) = entities ts in (SEntities es, rest)
   "OBJECTS" -> let (es, rest) = entities ts in (SObjects es, rest)
   "THUMBNAILIMAGE" -> let (body, rest) = splitEnd ts in (SThumbnail (force body), rest)
   _ -> let (body, rest) = splitEnd ts in (SOther name (force body), rest)
   where
-    entities t = let (es, rest) = entityLoop src t in (linkEntities es, rest)
+    entities t = let (es, rest) = entityLoop tbl src t in (linkEntities es, rest)
 
 splitEnd :: [Tag] -> ([Tag], [Tag])
 splitEnd ts = let (body, rest) = break (\t -> t == Tag 0 "ENDSEC") ts in (body, drop 1 rest)

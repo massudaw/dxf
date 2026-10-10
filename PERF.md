@@ -69,6 +69,56 @@ bytes per input byte; f001, which is all LINE, 14 bytes per input byte).  Profil
 tag list 9 %, `rnf` forcing the result 10 %, `decodeEntity`/`entityCodec`/`lift` 8 %, `shareCommon` 3 %.
 Fast decoders for the entities that fill these files (VERTEX, POLYLINE, SEQEND, TEXT, INSERT...) skip all of it.
 
+## String interning (one table per parse)
+
+`DXF.Intern`: a direct-mapped cache of 1024 slots in front of a `Map` (strings up to 64 bytes, at most 20,000
+of them); a hit is a hash of the bytes and one comparison, a miss copies the string once (`B.copy`, so the
+table never keeps a slice of the input alive).  One table is made per parse and used by the fast decoders
+(`commonR` interns layer, linetype, owner; `strI`/`mstrI` the block name of an INSERT and the style of a TEXT)
+and by the general path (`DXF.Entity.Interned`: type name, layer, linetype, owner, application names of
+extended data, text/dimension styles, INSERT block name, attribute tags, a layer's linetype, class names,
+the tables' entries).  Handles and text are unique and are not interned.
+`dxf-bench FILE census` counts what a parsed document holds (values held / distinct by value / distinct in memory):
+
+| field | file | held | distinct values | in memory before | in memory after |
+|-------|------|-----:|----:|----:|----:|
+| layer | f001 | 112,324 | 47 | 185 | 47 |
+| owner | f001 | 112,324 | 2 | 3 | 2 |
+| type | f001 | 112,324 | 2 | 3 | 2 |
+| layer | CPQ-SPS-ZZ-ZZ-DR-A-0005 | 1,841 | 12 | 352 | 12 |
+| type | CPQ-SPS-ZZ-ZZ-DR-A-0005 | 1,841 | 6 | 1,739 | 6 |
+
+Before, only a string equal to the previous entity's was shared (`shareCommon`): 185 copies of 47 layers on
+f001 as the layers alternate, and every entity type of the general path a slice of the input (1,739 for 6
+names).  Max residency and peak RSS (`parse`, machine under load: compare rows of one run only):
+
+| file | residency before | after | RSS before | after |
+|------|-----:|-----:|-----:|-----:|
+| f001 | 43.5 MB | 44.2 MB | 83.1 MB | 85.2 MB |
+| CPQ-SPS-ZZ-ZZ-DR-A-0005 | 2.8 MB | 3.9 MB | 20.5 MB | 21.6 MB |
+
+Interning does not lower residency here: the benchmark holds the input bytes anyway, and the strings were
+already few (a slice is 4 words, the same as the pointer to a shared copy); it is correctness of sharing
+(a document that outlives its input holds no slice of it) and a pointer-equal comparison.  The residency
+rise on the small file is the fast decoders' entities (see below), not the table.  Parse time on f001:
+192 ms against 196 ms (no cost measurable).
+
+## Fast decoders for the usual entities
+
+`DXF.Entity.FastKit` is a small reader monad over a byte offset (`dbl`, `mdbl`, `intD`, `pt`, `mpt`, `strI`,
+`marks`, `commonR`); `DXF.Entity.Fast` uses it for VERTEX, LINE, TEXT, POLYLINE, SEQEND, INSERT, CIRCLE, ARC,
+POINT and LWPOLYLINE: the usual order of tags, else the entity goes the general way.  The suite compares
+them with the general decoder on every sample and fixture ("fast decoders read what the general one reads").
+
+| file (best of five, ms) | parse before | parse after | print |
+|------|----:|----:|----:|
+| f001 | 196 | 192 | 123 / 100 |
+| CPQ-SPS-ZZ-ZZ-DR-A-0005 | 15.9 | 11.5 | 22.8 |
+| condo_A-301 | 15.5 | 11.4 | 20.9 |
+
+(The machine ran slower than when the earlier tables were made; all rows here are one session.)
+The small files still print slower than they parse: next, fast writers.
+
 ## What is left
 
 * Fast decoders and writers for the other usual entities (VERTEX, LWPOLYLINE, TEXT, INSERT, CIRCLE, ARC):

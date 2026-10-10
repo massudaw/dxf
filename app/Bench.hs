@@ -9,6 +9,11 @@ module Main (main) where
 import Control.DeepSeq (rnf)
 import Control.Exception (evaluate)
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Internal as BI
+import qualified Data.Set as Set
+import Foreign.ForeignPtr.Unsafe (unsafeForeignPtrToPtr)
+import Foreign.ForeignPtr (ForeignPtr)
+import Foreign.Ptr (ptrToIntPtr)
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
 import GHC.Clock (getMonotonicTime)
@@ -23,6 +28,9 @@ timed name act = do
   t1 <- getMonotonicTime
   putStrLn (name ++ ": " ++ show (fromIntegral (round ((t1 - t0) * 10000) :: Int) / 10 :: Double) ++ " ms")
   return r
+
+ptrAddr :: ForeignPtr a -> Int
+ptrAddr fp = fromIntegral (ptrToIntPtr (unsafeForeignPtrToPtr fp))
 
 main :: IO ()
 main = do
@@ -45,6 +53,18 @@ main = do
       go (1 :: Int)
       _ <- evaluate (rnf secs)
       pure ()
+    ["census"] -> do   -- what a parsed document holds: strings by value and by place in memory
+      d <- either (ioError . userError . show) pure (parseDXF bs)
+      let es = docEntities d ++ concatMap (\b -> blockHead b : blockEntities b) (docBlocks d)
+          fields = [ ("type", map (Just . eType) es), ("layer", map (cLayer . eCommon) es)
+                   , ("linetype", map (cLinetype . eCommon) es), ("owner", map (cOwner . eCommon) es)
+                   , ("handle", map (cHandle . eCommon) es) ]
+          place v = let BI.BS fp n = v in (fp `seq` ptrAddr fp, n)
+      putStrLn ("entities: " ++ show (length es))
+      mapM_ (\(name, vs) -> do
+               let js = [v | Just v <- vs]
+               putStrLn (name ++ ": " ++ show (length js) ++ " held, " ++ show (Set.size (Set.fromList js))
+                         ++ " distinct values, " ++ show (Set.size (Set.fromList (map place js))) ++ " distinct in memory")) fields
     ["parseonly"] -> do
       _ <- timed "parse document" (evaluate (parseDXF bs) >>= either (ioError . userError . show) pure)
       pure ()

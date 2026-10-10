@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns, OverloadedStrings #-}
 -- | Entities read straight from the bytes of a text file, with no tags
--- built: the common entities, in the order files write them.
+-- built: the usual ones, in the order files write them.
 --
 -- A decoder here accepts only the usual shape of an entity -- the common
 -- head (handle, owner, @AcDbEntity@, layer, linetype, color...), then the
@@ -8,31 +8,45 @@
 -- ('Nothing') at anything else: the tags go the general way
 -- ("DXF.Codec"), which takes every shape.  What a fast decoder accepts it
 -- reads exactly as the general one does; the test suite compares them on
--- every sample.
+-- every sample and fixture.
 module DXF.Entity.Fast
-  ( fastEntity, shareCommon
+  ( fastEntity
   ) where
 
+import Control.Applicative ((<|>))
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Internal as BI
 import Foreign.ForeignPtr.Unsafe (unsafeForeignPtrToPtr)
 import Foreign.Ptr (minusPtr)
 import DXF.Entity.Common
+import DXF.Entity.FastKit
 import DXF.Entity.Geometry
+import DXF.Entity.Poly
+import DXF.Entity.Text
 import DXF.Entity.Types
-import DXF.Number
+import DXF.Intern
 import DXF.Tag.Text
-import DXF.Vec
 
 -- | The entity whose type tag has the value @ty@ (a slice of @bs@), if it
 -- is one of the fast ones and has the usual shape; and the offset of the
--- tag after it.  The entity before it is where layer and owner are shared from.
-fastEntity :: B.ByteString -> Maybe Entity -> B.ByteString -> Maybe (Entity, Int)
-fastEntity bs prev ty
-  | ty == "LINE" = start >>= fastLine bs com
-  | otherwise = Nothing
+-- tag after it.  Layer, linetype, owner, styles and block names are interned.
+fastEntity :: Interner -> B.ByteString -> B.ByteString -> Maybe (Entity, Int)
+fastEntity tbl bs ty = case start of
+  Nothing -> Nothing
+  Just p -> case ty of
+    "VERTEX" -> run p vertexR
+    "LINE" -> run p lineR
+    "TEXT" -> run p textR
+    "POLYLINE" -> run p polylineR
+    "SEQEND" -> run p seqendR
+    "INSERT" -> run p insertR
+    "CIRCLE" -> run p circleR
+    "ARC" -> run p arcR
+    "POINT" -> run p pointR
+    "LWPOLYLINE" -> run p lwpolyR
+    _ -> Nothing
   where
-    com = eCommon <$> prev
+    run p r = runR tbl bs p r
     -- the offset after the type tag's line
     start = let BI.BS fp _ = bs
                 BI.BS fq _ = ty
@@ -43,99 +57,184 @@ fastEntity bs prev ty
                       Just k -> Just (e + k + 1)
                       Nothing -> Nothing
 
--- | A common part and the offset of the first tag that is not part of it.
-data Head = Head !Common {-# UNPACK #-} !Int
+ent :: B.ByteString -> Common -> Body -> Entity
+ent ty c b = Entity ty c b []
+{-# INLINE ent #-}
 
--- | Reuse the 'Just' of the previous entity's layer, linetype and owner
--- when equal: the same few strings come on every entity of a drawing.
-share :: Maybe B.ByteString -> B.ByteString -> Maybe B.ByteString
-share old v = case old of
-  Just p | p == v -> old
-  _ -> Just v
-{-# INLINE share #-}
+-- | AutoCAD writes the thickness (39) before the geometry, the codecs
+-- after it: one place or the other, not both.
+thick :: Maybe Double -> R (Maybe Double)
+thick (Just d) = pure (Just d)
+thick Nothing = mdbl 39
 
--- | The same, for a decoded entity: layer, linetype and owner take the
--- previous entity's when equal.
-shareCommon :: Maybe Common -> Common -> Common
-shareCommon Nothing c = c
-shareCommon (Just p) c
-  | any needs [cLayer, cOwner, cLinetype] = c { cLayer = sh cLayer, cOwner = sh cOwner, cLinetype = sh cLinetype }
-  | otherwise = c
+-- ------------------------------------------------------------------ geometry
+
+lineR :: R Entity
+lineR = do
+  c <- commonR
+  marks ["AcDbLine"]
+  t1 <- mdbl 39
+  a <- pt 10
+  b <- pt 11
+  t2 <- thick t1
+  x <- mpt 210
+  end
+  pure (ent "LINE" c (BGeo (GLine (Line a b t2 x))))
+
+pointR :: R Entity
+pointR = do
+  c <- commonR
+  marks ["AcDbPoint"]
+  t1 <- mdbl 39
+  p <- pt 10
+  t2 <- thick t1
+  x <- mpt 210
+  a <- mdbl 50
+  end
+  pure (ent "POINT" c (BGeo (GPoint (Point p t2 x a))))
+
+circleR :: R Entity
+circleR = do
+  c <- commonR
+  marks ["AcDbCircle"]
+  t1 <- mdbl 39
+  p <- pt 10
+  r <- dbl 40
+  t2 <- thick t1
+  x <- mpt 210
+  end
+  pure (ent "CIRCLE" c (BGeo (GCircle (Circle p r t2 x))))
+
+arcR :: R Entity
+arcR = do
+  c <- commonR
+  marks ["AcDbCircle"]
+  t1 <- mdbl 39
+  p <- pt 10
+  r <- dbl 40
+  t2 <- thick t1
+  x <- mpt 210
+  marks ["AcDbArc"]
+  a <- dbl 50
+  b <- dbl 51
+  end
+  pure (ent "ARC" c (BGeo (GArc (Arc p r a b t2 x))))
+
+-- ------------------------------------------------------------------ polylines
+
+vertexMarks :: [B.ByteString]
+vertexMarks = [ "AcDbVertex", "AcDb2dVertex", "AcDb3dPolylineVertex", "AcDbPolygonMeshVertex"
+              , "AcDbPolyFaceMeshVertex", "AcDbFaceRecord" ]
+
+vertexR :: R Entity
+vertexR = do
+  c <- commonR
+  marks vertexMarks
+  p <- pt 10
+  sw <- mdbl 40
+  ew <- mdbl 41
+  bu <- mdbl 42
+  fl <- intD 0 70
+  tg <- mdbl 50
+  i1 <- mint 71
+  i2 <- mint 72
+  i3 <- mint 73
+  i4 <- mint 74
+  vid <- mint 91
+  end
+  pure (ent "VERTEX" c (BPoly (PVertex (Vertex p sw ew bu fl tg i1 i2 i3 i4 vid))))
+
+polylineR :: R Entity
+polylineR = do
+  c <- commonR
+  marks ["AcDb2dPolyline", "AcDb3dPolyline", "AcDbPolygonMesh", "AcDbPolyFaceMesh"]
+  t1 <- mdbl 39
+  fo <- intD 1 66
+  el <- ptD 10
+  fl <- intD 0 70
+  sw <- mdbl 40
+  ew <- mdbl 41
+  m <- mint 71
+  n <- mint 72
+  md <- mint 73
+  nd <- mint 74
+  sm <- mint 75
+  t2 <- thick t1
+  x <- mpt 210
+  end
+  pure (ent "POLYLINE" c (BPoly (PPolyline (Polyline fo el fl sw ew m n md nd sm t2 x))))
+
+seqendR :: R Entity
+seqendR = do
+  c <- commonR
+  end
+  pure (ent "SEQEND" c (BPoly PSeqEnd))
+
+insertR :: R Entity
+insertR = do
+  c <- commonR
+  marks ["AcDbBlockReference"]
+  fo <- mint 66
+  nm <- strI 2
+  p <- pt 10
+  xs <- mdbl 41
+  ys <- mdbl 42
+  zs <- mdbl 43
+  ro <- mdbl 50
+  co <- mint 70
+  rw <- mint 71
+  cs <- mdbl 44
+  rs <- mdbl 45
+  x <- mpt 210
+  end
+  pure (ent "INSERT" c (BPoly (PInsert (Insert fo nm p xs ys zs ro co rw cs rs x))))
+
+lwpolyR :: R Entity
+lwpolyR = do
+  c <- commonR
+  marks ["AcDbPolyline"]
+  _ <- mint 90
+  fl <- intD 0 70
+  cw <- mdbl 43
+  el <- mdbl 38
+  th <- mdbl 39
+  vs <- vertices []
+  x <- mpt 210
+  end
+  pure (ent "LWPOLYLINE" c (BPoly (PLwPolyline (LwPolyline fl cw el th x vs))))
   where
-    sh f = case f c of Nothing -> Nothing; Just v -> share (f p) v
-    -- equal to the previous one's, but not the same bytes in memory
-    needs f = case (f p, f c) of
-      (Just a, Just b) -> a == b && addr a /= addr b
-      _ -> False
-    addr x = let BI.BS fx _ = x in unsafeForeignPtrToPtr fx
+    vertices acc = do
+      k <- peek
+      if k /= 10 then pure (reverse acc) else do
+        px <- dbl 10
+        py <- dbl 20
+        i1 <- mint 91
+        sw <- mdbl 40
+        ew <- mdbl 41
+        bu <- mdbl 42
+        i2 <- maybe (mint 91) (const (pure Nothing)) i1
+        vertices (LwVertex px py sw ew bu (i1 <|> i2) : acc)
 
--- | The common part: handle (5), owner (330), @AcDbEntity@ (100), layer
--- (8), linetype (6), color (62), paperspace (67), lineweight (370).
-fastHead :: B.ByteString -> Maybe Common -> Int -> Head
-fastHead bs prev = go False Nothing Nothing Nothing Nothing Nothing Nothing Nothing
-  where
-    pOwner = prev >>= cOwner
-    pLayer = prev >>= cLayer
-    pLt = prev >>= cLinetype
-    go !ent h o l lt col ps lw !p = case nextTag bs p of
-      T c s e nx
-        | c == 5, not ent, Nothing <- h -> go ent (Just v) o l lt col ps lw nx
-        | c == 330, not ent, Nothing <- o -> go ent h (share pOwner v) l lt col ps lw nx
-        | c == 100, not ent, v == "AcDbEntity" -> go True h o l lt col ps lw nx
-        | c == 8, Nothing <- l -> go ent h o (share pLayer v) lt col ps lw nx
-        | c == 6, Nothing <- lt -> go ent h o l (share pLt v) col ps lw nx
-        | c == 62, Nothing <- col, Just k <- readInt v -> go ent h o l lt (Just k) ps lw nx
-        | c == 67, Nothing <- ps, Just k <- readInt v -> go ent h o l lt col (Just k) lw nx
-        | c == 370, Nothing <- lw, Just k <- readInt v -> go ent h o l lt col ps (Just k) nx
-        | otherwise -> Head (Common h o [] l lt col ps lw Nothing blankMore [] []) p
-        where !v = slice bs s e
+-- ---------------------------------------------------------------------- text
 
--- | A point: x at code c, y at c+10, and z at c+20 when it is there.
-data P = P {-# UNPACK #-} !V3 {-# UNPACK #-} !Int
-
-point3 :: B.ByteString -> Int -> Int -> Maybe P
-point3 bs c p0 = case nextTag bs p0 of
-  T c1 s1 e1 n1 | c1 == c, Just x <- readDouble (slice bs s1 e1) -> case nextTag bs n1 of
-    T c2 s2 e2 n2 | c2 == c + 10, Just y <- readDouble (slice bs s2 e2) -> case nextTag bs n2 of
-      T c3 s3 e3 n3 | c3 == c + 20 -> case readDouble (slice bs s3 e3) of
-                        Just z -> Just (P (V3 x y z) n3)
-                        Nothing -> Nothing
-      _ -> Just (P (V3 x y 0) n2)
-    _ -> Nothing
-  _ -> Nothing
-
--- | An optional point.
-optPoint :: B.ByteString -> Int -> Int -> Maybe (Maybe V3, Int)
-optPoint bs c p = case nextTag bs p of
-  T c1 _ _ _ | c1 == c -> (\(P v q) -> (Just v, q)) <$> point3 bs c p
-  _ -> Just (Nothing, p)
-
--- | An optional double.
-optD :: B.ByteString -> Int -> Int -> Maybe (Maybe Double, Int)
-optD bs c p = case nextTag bs p of
-  T c1 s e nx | c1 == c -> (\d -> (Just d, nx)) <$> readDouble (slice bs s e)
-  _ -> Just (Nothing, p)
-
--- | Skip a subclass marker, if it is the next tag.
-marker :: B.ByteString -> B.ByteString -> Int -> Int
-marker bs name p = case nextTag bs p of
-  T 100 s e nx | slice bs s e == name -> nx
-  _ -> p
-
--- | The entity is over: the next tag is a @0@.
-isEnd :: B.ByteString -> Int -> Bool
-isEnd bs p = case nextTag bs p of
-  T 0 _ _ _ -> True
-  _ -> False
-
-fastLine :: B.ByteString -> Maybe Common -> Int -> Maybe (Entity, Int)
-fastLine bs prev p0 = case fastHead bs prev p0 of
-  Head com p1 -> do
-    (th1, p2) <- optD bs 39 (marker bs "AcDbLine" p1)   -- AutoCAD writes the thickness first
-    P a p3 <- point3 bs 10 p2
-    P b p4 <- point3 bs 11 p3
-    (th2, p5) <- maybe (optD bs 39 p4) (const (Just (Nothing, p4))) th1
-    (ext, p6) <- optPoint bs 210 p5
-    if isEnd bs p6
-      then Just (Entity "LINE" com (BGeo (GLine (Line a b (maybe th2 Just th1) ext))) [], p6)
-      else Nothing
+textR :: R Entity
+textR = do
+  c <- commonR
+  marks ["AcDbText"]
+  th <- mdbl 39
+  p <- pt 10
+  h <- dbl 40
+  tx <- str 1
+  ro <- mdbl 50
+  w <- mdbl 41
+  ob <- mdbl 51
+  st <- mstrI 7
+  el <- mdbl 38
+  gf <- mint 71
+  ha <- mint 72
+  al <- mpt 11
+  x <- mpt 210
+  marks ["AcDbText"]
+  va <- mint 73
+  end
+  pure (ent "TEXT" c (BTxt (TText (Text (TextData p h tx ro w ob st gf ha al th el x) va))))

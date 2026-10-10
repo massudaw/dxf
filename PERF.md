@@ -179,8 +179,9 @@ per input byte (5 MB) and over 100 MB/s cold.  CPQ = CPQ-SPS-ZZ-ZZ-DR-A-0005 (50
 | step | commit | CPQ alloc | condo alloc | CPQ parse cold / loop | condo parse cold / loop | f001 parse cold / loop |
 |------|--------|----------:|------------:|----------------------:|------------------------:|-----------------------:|
 | start (profile showed 1,690 entities per parse on the general path) | 0ca0652 | 20.1 MB (40 B/B) | 18.6 MB | 12.2 / 9.8 ms | 10.3 / 9.0 ms | 147 / 131 ms |
-| POLYLINE flags before the point (R12 order) read by the fast decoder; entity loop keeps to the bytes between fast entities (no `Tag` built) | (this) | 11.4 MB (22 B/B) | 10.5 MB | 8.7 / 7.0 ms | 8.2 / 6.6 ms | 138 / 130 ms |
+| POLYLINE flags before the point (R12 order) read by the fast decoder; entity loop keeps to the bytes between fast entities (no `Tag` built) | a2a752f | 11.4 MB (22 B/B) | 10.5 MB | 8.7 / 7.0 ms | 8.2 / 6.6 ms | 138 / 130 ms |
 
+| INLINE on the FastKit readers; `readDoubleU` returns an unboxed sum, scanner as top-level functions (no per-number closure) | (this) | 9.2 MB (18 B/B) | 8.4 MB | 8.3 best / 9.1 median ms (bench opt 2, 30 runs, warm) | n/m | not re-measured |
 The R12 files write POLYLINE as `66, 70, 10`, the reader wanted `66, 10, 70` and gave up, so all 1,654
 polylines of the file (and the 6,500 vertices were fine) went through the tag list and the field-table
 codecs: 40 % of the allocation.

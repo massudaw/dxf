@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns, OverloadedStrings #-}
+{-# LANGUAGE BangPatterns, MagicHash, OverloadedStrings, UnboxedSums, UnboxedTuples #-}
 -- | The pieces fast decoders are made of: a reader of tags straight from the
 -- bytes of a text file, as a small state monad over a byte offset.  A
 -- reader that meets anything but the shape it expects fails, and the
@@ -14,6 +14,7 @@ module DXF.Entity.FastKit
   ) where
 
 import qualified Data.ByteString as B
+import GHC.Exts (Double (D#))
 import DXF.Entity.Common
 import DXF.Intern
 import DXF.Number
@@ -55,16 +56,19 @@ runR tbl bs p (R f) = case f (Env bs tbl) p of
 
 -- | The entity is over: the next tag is a @0@.
 end :: R ()
+{-# INLINE end #-}
 end = R (\(Env bs _) p -> case nextTag bs p of
   T 0 _ _ _ -> Ok () p
   _ -> No)
 
 -- | The code of the next tag, which stays to be read.
 peek :: R Int
+{-# INLINE peek #-}
 peek = R (\(Env bs _) p -> case nextTag bs p of T c _ _ _ -> Ok c p)
 
 -- | Skip the subclass markers with these names (any number of them).
 marks :: [B.ByteString] -> R ()
+{-# INLINE marks #-}
 marks names = R go
   where
     go env@(Env bs _) p = case nextTag bs p of
@@ -73,26 +77,32 @@ marks names = R go
 
 -- | A required double.
 dbl :: Int -> R Double
+{-# INLINE dbl #-}
 dbl c = R (\(Env bs _) p -> case nextTag bs p of
-  T c1 s e nx | c1 == c, Just d <- readDouble (slice bs s e) -> Ok d nx
+  T c1 s e nx | c1 == c -> case readDoubleU (slice bs s e) of
+                             (# | d #) -> Ok (D# d) nx
+                             _ -> No
   _ -> No)
 
 -- | An optional double.
 mdbl :: Int -> R (Maybe Double)
+{-# INLINE mdbl #-}
 mdbl c = R (\(Env bs _) p -> case nextTag bs p of
-  T c1 s e nx | c1 == c -> case readDouble (slice bs s e) of
-                             Just d -> Ok (Just d) nx
-                             Nothing -> No
+  T c1 s e nx | c1 == c -> case readDoubleU (slice bs s e) of
+                             (# | d #) -> Ok (Just (D# d)) nx
+                             _ -> No
   _ -> Ok Nothing p)
 
 -- | A required integer.
 int :: Int -> R Int
+{-# INLINE int #-}
 int c = R (\(Env bs _) p -> case nextTag bs p of
   T c1 s e nx | c1 == c, Just d <- readInt (slice bs s e) -> Ok d nx
   _ -> No)
 
 -- | An integer with a default.
 intD :: Int -> Int -> R Int
+{-# INLINE intD #-}
 intD def c = R (\(Env bs _) p -> case nextTag bs p of
   T c1 s e nx | c1 == c -> case readInt (slice bs s e) of
                              Just d -> Ok d nx
@@ -101,6 +111,7 @@ intD def c = R (\(Env bs _) p -> case nextTag bs p of
 
 -- | An optional integer.
 mint :: Int -> R (Maybe Int)
+{-# INLINE mint #-}
 mint c = R (\(Env bs _) p -> case nextTag bs p of
   T c1 s e nx | c1 == c -> case readInt (slice bs s e) of
                              Just d -> Ok (Just d) nx
@@ -109,34 +120,40 @@ mint c = R (\(Env bs _) p -> case nextTag bs p of
 
 -- | A required string, as the slice of the input it is.
 str :: Int -> R B.ByteString
+{-# INLINE str #-}
 str c = R (\(Env bs _) p -> case nextTag bs p of
   T c1 s e nx | c1 == c -> Ok (slice bs s e) nx
   _ -> No)
 
 -- | A required string, interned.
 strI :: Int -> R B.ByteString
+{-# INLINE strI #-}
 strI c = R (\(Env bs t) p -> case nextTag bs p of
   T c1 s e nx | c1 == c -> Ok (intern t (slice bs s e)) nx
   _ -> No)
 
 -- | An optional string, interned.
 mstrI :: Int -> R (Maybe B.ByteString)
+{-# INLINE mstrI #-}
 mstrI c = R (\(Env bs t) p -> case nextTag bs p of
   T c1 s e nx | c1 == c -> Ok (Just (intern t (slice bs s e))) nx
   _ -> Ok Nothing p)
 
 -- | A point: x at code c, y at c+10, z at c+20 when it is there.
 pt :: Int -> R V3
+{-# INLINE pt #-}
 pt c = R (\(Env bs _) p -> point bs c p)
 
 -- | A point that may be absent (the default is the origin).
 ptD :: Int -> R V3
+{-# INLINE ptD #-}
 ptD c = R (\(Env bs _) p -> case nextTag bs p of
   T c1 _ _ _ | c1 == c -> point bs c p
   _ -> Ok v3zero p)
 
 -- | An optional point.
 mpt :: Int -> R (Maybe V3)
+{-# INLINE mpt #-}
 mpt c = R (\(Env bs _) p -> case nextTag bs p of
   T c1 _ _ _ | c1 == c -> case point bs c p of
                             Ok v q -> Ok (Just v) q
@@ -145,12 +162,16 @@ mpt c = R (\(Env bs _) p -> case nextTag bs p of
 
 point :: B.ByteString -> Int -> Int -> Res V3
 point bs c p0 = case nextTag bs p0 of
-  T c1 s1 e1 n1 | c1 == c, Just x <- readDouble (slice bs s1 e1) -> case nextTag bs n1 of
-    T c2 s2 e2 n2 | c2 == c + 10, Just y <- readDouble (slice bs s2 e2) -> case nextTag bs n2 of
-      T c3 s3 e3 n3 | c3 == c + 20 -> case readDouble (slice bs s3 e3) of
-                        Just z -> Ok (V3 x y z) n3
-                        Nothing -> No
-      _ -> Ok (V3 x y 0) n2
+  T c1 s1 e1 n1 | c1 == c -> case readDoubleU (slice bs s1 e1) of
+    (# | x #) -> case nextTag bs n1 of
+      T c2 s2 e2 n2 | c2 == c + 10 -> case readDoubleU (slice bs s2 e2) of
+        (# | y #) -> case nextTag bs n2 of
+          T c3 s3 e3 n3 | c3 == c + 20 -> case readDoubleU (slice bs s3 e3) of
+                            (# | z #) -> Ok (V3 (D# x) (D# y) (D# z)) n3
+                            _ -> No
+          _ -> Ok (V3 (D# x) (D# y) 0) n2
+        _ -> No
+      _ -> No
     _ -> No
   _ -> No
 {-# INLINE point #-}

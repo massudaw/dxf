@@ -10,7 +10,7 @@
 -- reads exactly as the general one does; the test suite compares them on
 -- every sample and fixture.
 module DXF.Entity.Fast
-  ( fastEntity
+  ( fastEntity, afterType
   ) where
 
 import Control.Applicative ((<|>))
@@ -27,35 +27,37 @@ import DXF.Entity.Types
 import DXF.Intern
 import DXF.Tag.Text
 
--- | The entity whose type tag has the value @ty@ (a slice of @bs@), if it
--- is one of the fast ones and has the usual shape; and the offset of the
--- tag after it.  Layer, linetype, owner, styles and block names are interned.
-fastEntity :: Interner -> B.ByteString -> B.ByteString -> Maybe (Entity, Int)
-fastEntity tbl bs ty = case start of
-  Nothing -> Nothing
-  Just p -> case ty of
-    "VERTEX" -> run p vertexR
-    "LINE" -> run p lineR
-    "TEXT" -> run p textR
-    "POLYLINE" -> run p polylineR
-    "SEQEND" -> run p seqendR
-    "INSERT" -> run p insertR
-    "CIRCLE" -> run p circleR
-    "ARC" -> run p arcR
-    "POINT" -> run p pointR
-    "LWPOLYLINE" -> run p lwpolyR
-    _ -> Nothing
-  where
-    run p r = runR tbl bs p r
-    -- the offset after the type tag's line
-    start = let BI.BS fp _ = bs
-                BI.BS fq _ = ty
-                off = unsafeForeignPtrToPtr fq `minusPtr` unsafeForeignPtrToPtr fp
-                e = off + B.length ty
-            in if off < 0 || e > B.length bs || slice bs off e /= ty then Nothing
-               else case B.elemIndex 10 (B.drop e bs) of
-                      Just k -> Just (e + k + 1)
-                      Nothing -> Nothing
+-- | The entity whose type tag has the value @ty@, if it is one of the fast
+-- ones and has the usual shape; @nx@ is the offset of the tag after the
+-- type tag's line.  The offset of the tag after the entity comes with it.
+-- Layer, linetype, owner, styles and block names are interned.
+fastEntity :: Interner -> B.ByteString -> B.ByteString -> Int -> Maybe (Entity, Int)
+fastEntity tbl bs ty p = case ty of
+  "VERTEX" -> run vertexR
+  "LINE" -> run lineR
+  "TEXT" -> run textR
+  "POLYLINE" -> run polylineR
+  "SEQEND" -> run seqendR
+  "INSERT" -> run insertR
+  "CIRCLE" -> run circleR
+  "ARC" -> run arcR
+  "POINT" -> run pointR
+  "LWPOLYLINE" -> run lwpolyR
+  _ -> Nothing
+  where run r = runR tbl bs p r
+
+-- | The offset after the line of a type tag whose value @ty@ is a slice of
+-- @bs@ (the tag list of a parse holds slices of the input), if it is.
+afterType :: B.ByteString -> B.ByteString -> Maybe Int
+afterType bs ty =
+  let BI.BS fp _ = bs
+      BI.BS fq _ = ty
+      off = unsafeForeignPtrToPtr fq `minusPtr` unsafeForeignPtrToPtr fp
+      e = off + B.length ty
+  in if off < 0 || e > B.length bs || slice bs off e /= ty then Nothing
+     else case B.elemIndex 10 (B.drop e bs) of
+            Just k -> Just (e + k + 1)
+            Nothing -> Nothing
 
 ent :: B.ByteString -> Common -> Body -> Entity
 ent ty c b = Entity ty c b []
@@ -150,8 +152,9 @@ polylineR = do
   marks ["AcDb2dPolyline", "AcDb3dPolyline", "AcDbPolygonMesh", "AcDbPolyFaceMesh"]
   t1 <- mdbl 39
   fo <- intD 1 66
+  f0 <- mint 70                       -- R12 files write the flags before the point
   el <- ptD 10
-  fl <- intD 0 70
+  fl <- maybe (intD 0 70) pure f0
   sw <- mdbl 40
   ew <- mdbl 41
   m <- mint 71

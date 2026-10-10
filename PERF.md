@@ -37,7 +37,7 @@ files this round works on).  Measured with the executable (`dxf-bench FILE table
 | CPQ-SPS-ZZ-ZZ-DR-E-0001 | 0.13 MB | 1.4 | 94 | 0.9 | 146 | 3.5 | 38 | 0.9 | 146 | 0.31 MB | 58 | 2.3 | 45 | 2.9 | 55 MB |
 
 The machine was lightly loaded (load average 3.7); loop figures move by 10-20 % between runs.  f001 is parsed
-24 times and printed 39 times faster than ezdxf (cold), the two small files 22 and 38 times faster, and a
+22 times and printed 32 times faster than ezdxf (cold), the two small files 22 and 45 times faster, and a
 parsed f001 is held in 2.3 times its size.  Parse is above 100 MB/s on f001 (132 cold), on S-0003, S-103 and
 E-0001 (mostly LINE and a few entities, 94-105 cold); the files made of POLYLINE/VERTEX (the two `*`) or TEXT-heavy
 drawings are at 42-52 MB/s: they are the target of the allocation work below.  Print of the files that
@@ -169,6 +169,21 @@ The small files now print faster than they parse (12 ms).
 * The printed f001 parses in 127 ms in the executable, as fast as the original: the 172 ms noted
   earlier and the 660 ms seen once inside the session were GC of the first document being held,
   not a slower path (long digit runs do not fall off the fast path).
+
+## Allocation round: small files, bytes allocated per parse
+
+`dxf-bench FILE loop +RTS -s` (400 parses, allocated bytes / 400, input copy of 0.5 MB included) and
+`dxf-bench FILE table` (best of two processes; cold = first parse, loop = best repeat).  Aim: under 10 bytes
+per input byte (5 MB) and over 100 MB/s cold.  CPQ = CPQ-SPS-ZZ-ZZ-DR-A-0005 (509 KB), condo = condo_A-301 (470 KB).
+
+| step | commit | CPQ alloc | condo alloc | CPQ parse cold / loop | condo parse cold / loop | f001 parse cold / loop |
+|------|--------|----------:|------------:|----------------------:|------------------------:|-----------------------:|
+| start (profile showed 1,690 entities per parse on the general path) | 0ca0652 | 20.1 MB (40 B/B) | 18.6 MB | 12.2 / 9.8 ms | 10.3 / 9.0 ms | 147 / 131 ms |
+| POLYLINE flags before the point (R12 order) read by the fast decoder; entity loop keeps to the bytes between fast entities (no `Tag` built) | (this) | 11.4 MB (22 B/B) | 10.5 MB | 8.7 / 7.0 ms | 8.2 / 6.6 ms | 138 / 130 ms |
+
+The R12 files write POLYLINE as `66, 70, 10`, the reader wanted `66, 10, 70` and gave up, so all 1,654
+polylines of the file (and the 6,500 vertices were fine) went through the tag list and the field-table
+codecs: 40 % of the allocation.
 
 ## What is left
 

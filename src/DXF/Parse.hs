@@ -20,7 +20,7 @@ import DXF.Header
 import DXF.Tables
 import DXF.Tag
 import DXF.Tag.Scan
-import DXF.Tag.Text (scanFrom)
+import DXF.Tag.Text (T (..), nextTag, scanFrom, slice)
 
 -- | Parse, reporting a structure error as 'Left'.
 parseDXF :: B.ByteString -> Either DxfError Document
@@ -97,11 +97,19 @@ entityLoop tbl src = go []
     go !acc (Tag 0 "ENDSEC" : rest) = (reverse acc, rest)
     go !acc [] = (reverse acc, [])
     go !acc (t : rest)
-      | Tag 0 ty <- t, Just bs <- src, Just (e, q) <- fastEntity tbl bs ty = go (e : acc) (scanFrom bs q)
-      | otherwise =
-          let (body, more) = break isZero rest
-              !x = force (internEntity tbl (decodeEntity (t : body)))
-          in go (x : acc) more
+      | Tag 0 ty <- t, Just bs <- src, Just nx <- afterType bs ty = fast bs acc ty nx
+      | otherwise = general acc t rest
+    -- from the bytes: while the entities are the usual ones, no tag is built
+    fast bs !acc ty nx = case fastEntity tbl bs ty nx of
+      Just (e, q) -> case nextTag bs q of
+        T 0 s en nx'
+          | ty' <- slice bs s en, ty' /= "ENDSEC", ty' /= "EOF" -> fast bs (e : acc) ty' nx'
+        _ -> go (e : acc) (scanFrom bs q)
+      Nothing -> general acc (Tag 0 ty) (scanFrom bs nx)
+    general acc t rest =
+      let (body, more) = break isZero rest
+          !x = force (internEntity tbl (decodeEntity (t : body)))
+      in go (x : acc) more
 
 section :: Interner -> Maybe B.ByteString -> B.ByteString -> [Tag] -> (Section, [Tag])
 section tbl src name ts = case name of

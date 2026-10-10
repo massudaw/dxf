@@ -135,11 +135,22 @@ sample and fixture (blocks too, children included) both ways in all eight layout
 
 The small files now print faster than they parse (12 ms).
 
+## Steady state, and what the numbers hide (measured with `bench opt:2`)
+
+* A single run of a 500 KB file is 11-12 ms, but that includes cold code; 400 parses in a loop cost
+  6.9 ms of mutator each (74 MB/s) plus GC: 4 ms with the default nursery, 1.2 ms with `-A16m`
+  (CPQ-0005 and condo_A-301 alike; 20 MB allocated per parse of 0.5 MB). With the whole file in one
+  parse the nursery matters little: f001 parses in 131 ms with `-A64m`, 190 ms with the default.
+* f001, parse 146 ms (132 MB/s), print 102 ms, in the session at -O2 and as the executable alike.
+* The printed f001 parses in 127 ms in the executable, as fast as the original: the 172 ms noted
+  earlier and the 660 ms seen once inside the session were GC of the first document being held,
+  not a slower path (long digit runs do not fall off the fast path).
+
 ## What is left
 
-* Fast decoders and writers for the other usual entities (VERTEX, LWPOLYLINE, TEXT, INSERT, CIRCLE, ARC):
-  the small samples parse at about 34 MB/s, below the 100 MB/s aim; only LINE-heavy files reach it.
+* The small files parse at 46-74 MB/s (cold single run / steady state), below the 100 MB/s aim; f001
+  reaches it. What remains is allocation (40 bytes per input byte) in the FastKit reader monad and the
+  per-entity records; unboxed-sum return types or a fixed-shape VERTEX decoder are the next step.
 * Doubles are formatted again (shortest digits, which reproduces CAD output byte for byte) rather than
   copied from the source bytes: a copy would cost 20+ bytes per number held in memory.
-* The printed f001 parses in 172 ms against 140 ms for the original (long digit runs fall to the slower
-  path); not investigated.
+

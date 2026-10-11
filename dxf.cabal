@@ -57,6 +57,13 @@ executable dxf-bench
   default-language: Haskell2010
   ghc-options:      -O2 -rtsopts
 
+executable dxf-write-bench
+  main-is:          WriteBench.hs
+  hs-source-dirs:   app
+  build-depends:    base, bytestring, dxf
+  default-language: Haskell2010
+  ghc-options:      -O2 -rtsopts
+
 library
   exposed-modules:  DXF
                     DXF.Vec

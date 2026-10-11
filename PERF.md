@@ -186,6 +186,26 @@ The R12 files write POLYLINE as `66, 70, 10`, the reader wanted `66, 10, 70` and
 polylines of the file (and the 6,500 vertices were fine) went through the tag list and the field-table
 codecs: 40 % of the allocation.
 
+## Writing a new drawing (DXF.Build)
+
+`dxf-write-bench N [R12|R2010] [FILE]` builds N LINEs on one layer, each with extended data (an id string,
+an int, a real: the shape of an export where every object carries the id of its model element), makes the
+document (handles, owners, tables, blocks, extents) and prints it. `-O2`, one run, 100,000 lines:
+
+| version | file | build drawing | to document | print | total | allocated | max residency |
+|---|---|---|---|---|---|---|---|
+| R2010 | 17.5 MB | 147 ms | 18 ms | 344 ms | 0.53 s | 1.05 GB | 95 MB |
+| R12 | 13.0 MB | 180 ms | 57 ms | 252 ms | 0.52 s | 0.99 GB | 84 MB |
+
+The same drawing in ezdxf (`add_line` + `set_xdata`, then `saveas`, R2010): 2.2 s to build, 4.6 s to save,
+6.8 s in all, about 13 times slower. Reading the written file back: ezdxf 3.7 s and 318 MB, audit finds
+nothing (errors 0, fixes 0), 100,000 lines. About 40 % of the time is the collector (`-A64m` does not
+change it: the document is live while it is printed).
+
+Printing is 51 MB/s here against 150+ MB/s for a parsed file: an entity with extended data is not one of
+the fast-writer shapes and goes through the field-table codec. A fast writer with XDATA is the next step if
+exports of millions of lines matter.
+
 ## What is left
 
 * The small files parse at 46-74 MB/s (cold single run / steady state), below the 100 MB/s aim; f001

@@ -75,7 +75,7 @@ splitTags graphic = go Pre blankCommon []
           Bod -> go Bod c (t : body) rest
           _ | k == 100 -> if graphic && v == "AcDbEntity" && isPre ph then go Ent c body rest
                            else go Bod c (t : body) rest
-            | Pre <- ph, k == 5, Nothing <- cHandle c -> go ph c { cHandle = Just v } body rest
+            | Pre <- ph, k == 5 || k == 105, Nothing <- cHandle c -> go ph c { cHandle = Just v } body rest
             | Pre <- ph, k == 330, Nothing <- cOwner c -> go ph c { cOwner = Just v } body rest
             | Pre <- ph, k == 102, "{" `B.isPrefixOf` v ->
                 let (grp, rest') = group102 ts in go ph c { cAppData = grp : cAppData c } body rest'
@@ -119,7 +119,7 @@ commonHead graphic ty c f
   | otherwise = general
   where
     general =
-      tS 0 ty f <> tMaybeS 5 (cHandle c) f <> foldMap tTags (cAppData c) f <> tMaybeS 330 (cOwner c) f
+      tS 0 ty f <> tMaybeS (handleCode ty) (cHandle c) f <> foldMap tTags (cAppData c) f <> tMaybeS 330 (cOwner c) f
       <> (if graphic then ent else mempty)
     m = cMore c
     ent = tMarker "AcDbEntity" f <> tMaybeI 67 (cPaperspace c) f <> tMaybeS 8 (cLayer c) f
@@ -128,6 +128,10 @@ commonHead graphic ty c f
       <> tMaybeS 430 (mColorName m) f <> tMaybeI 440 (mTransparency m) f <> tMaybeI 284 (mShadow m) f
       <> tMaybeS 347 (mMaterial m) f <> tMaybeS 348 (mVisualStyle m) f <> tMaybeI 380 (mPlotStyleEnum m) f
       <> tMaybeS 390 (mPlotStyle m) f
+
+-- | The group code of an entity's handle: 5, but a DIMSTYLE has 105.
+handleCode :: B.ByteString -> Int
+handleCode ty = if ty == "DIMSTYLE" then 105 else 5
 
 -- | The usual head: no application data, none of the rare attributes,
 -- strings short and numbers plain, so one primitive writes it all.
@@ -141,7 +145,7 @@ plainHead ty c = null (cAppData c) && cMore c == blankMore && shortBytes ty
 headWriter :: Bool -> Bool -> Bool -> Bool -> B.ByteString -> Common -> Ptr Word8 -> IO (Ptr Word8)
 headWriter pad crlf r12 graphic ty c p0 = do
   p1 <- putBytesTag pad crlf 0 ty p0
-  p2 <- opt 5 (cHandle c) p1
+  p2 <- opt (handleCode ty) (cHandle c) p1
   p3 <- opt 330 (cOwner c) p2
   if not graphic then pure p3 else do
     p4 <- if r12 then pure p3 else putBytesTag pad crlf 100 "AcDbEntity" p3

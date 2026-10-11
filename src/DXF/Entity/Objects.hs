@@ -73,12 +73,13 @@ data SortEnts = SortEnts
 
 dictCodec :: Codec Dictionary
 dictCodec = codec (Dictionary Nothing Nothing Nothing [])
-  [ mark "AcDbDictionary", mark "AcDbDictionaryWithDefault"
+  [ mark "AcDbDictionary"
   , mint "hard_owned" 280 (lens dcHardOwned (\r v -> r { dcHardOwned = v }))
   , mint "cloning" 281 (lens dcCloning (\r v -> r { dcCloning = v }))
-  , mstr "default" 340 (lens dcDefault (\r v -> r { dcDefault = v }))
   , custom "keys" [3, 350, 360] rd (foldMap wr . dcEntries) (\r -> Just (JA [JS k | (k, _, _) <- dcEntries r]))
-      (\r -> r { dcEntries = reverse (dcEntries r) }) ]
+      (\r -> r { dcEntries = reverse (dcEntries r) })
+  , (markS "AcDbDictionaryWithDefault" id) { fWrite = \r -> maybe mempty (const (tMarker "AcDbDictionaryWithDefault")) (dcDefault r) }
+  , mstr "default" 340 (lens dcDefault (\r v -> r { dcDefault = v })) ]
   where
     wr (k, c, h) = tS 3 k <> tS c h
     rd 3 v r = Just r { dcEntries = (v, 350, "") : dcEntries r }

@@ -20,6 +20,7 @@ import qualified Check.Misc
 import qualified Check.Objects
 import qualified Check.Settings
 import qualified Check.Tables
+import qualified Check.Build
 
 groups :: [(String, IO Result)]
 groups = concat
@@ -33,6 +34,7 @@ groups = concat
   , Check.Objects.checks
   , Check.Settings.checks
   , Check.Tables.checks
+  , Check.Build.checks
   ]
 
 -- | Run the checks whose name contains the given text (all if empty).

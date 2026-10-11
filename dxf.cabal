@@ -28,6 +28,8 @@ library dxf-checks
                     Check.Objects
                     Check.Settings
                     Check.Tables
+                    Check.House
+                    Check.Build
   hs-source-dirs:   test
   build-depends:    base, bytestring, containers, text, directory, filepath, process, dxf
   default-language: Haskell2010
@@ -96,6 +98,10 @@ library
                     DXF.Entity.Tables
                     DXF.Entity.Vars
                     DXF.Entity.Block
+                    DXF.XData
+                    DXF.Build.Entities
+                    DXF.Build.Skeleton
+                    DXF.Build
   build-depends:    base >=4.8 && <5, array, bytestring, containers, text, deepseq
   hs-source-dirs:   src
   default-language: Haskell2010

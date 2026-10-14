@@ -1,5 +1,5 @@
 -- | Doubles written as text: every one reads back to itself, and the
--- digits are the shortest ones (all but a handful).
+-- digits are the shortest ones.
 module Check.Doubles (checks) where
 
 import qualified Data.ByteString as B
@@ -60,8 +60,8 @@ checks =
   , ("doubles: text reads back to the same double", pure (concat
       [ failIf (readDouble t /= Just x && not (isNaN x)) ("doubleText " ++ show x ++ " = " ++ show t)
       | x <- samplesD, let t = text x ]))
-  , ("doubles: text is plain decimal in range, and shortest but for a few", pure (
+  , ("doubles: text is plain decimal in range, and shortest", pure (
       let inRange = [x | x <- samplesD, abs x >= 1e-5, abs x < 1e16]
           longer = [x | x <- inRange, sig (text x) > sig (BL.toStrict (BB.toLazyByteString (BB.doubleDec x)))]
       in concat [ [ "e in " ++ show x ++ ": " ++ show (text x) | x <- inRange, BC.elem 'e' (text x) ]
-                , failIf (length longer * 200 > length inRange) ("too many longer than shortest: " ++ show (length longer) ++ " of " ++ show (length inRange) ++ ", e.g. " ++ show (take 3 longer)) ])) ]
+                , failIf (not (null longer)) ("longer than shortest: " ++ show (length longer) ++ " of " ++ show (length inRange) ++ ", e.g. " ++ show (take 3 longer)) ])) ]

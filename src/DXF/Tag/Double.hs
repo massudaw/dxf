@@ -1,163 +1,80 @@
-{-# LANGUAGE BangPatterns, OverloadedStrings #-}
--- | Doubles as text, fast: Grisu2 (Loitsch 2010), written into the output
--- buffer with no allocation.  The digits always read back to the same
--- double ('readDouble' is correctly rounded) and are the shortest ones
--- in all but about one case in a thousand.  Plain decimal notation
--- (@0.01@, @250.24323977301532@, @3.0@), as CAD programs write it;
--- outside 1e-5 .. 1e16 the general formatter is used.
+{-# LANGUAGE DataKinds, OverloadedStrings #-}
+-- | Doubles as text: linbuf's shortest digits ('LinBuf.Real.shortestDigits': Schubfach -- the fewest digits
+-- that read back to the same double, the closest of those, ties to even), laid out as dxf writes them, in
+-- plain decimal notation (@0.01@, @250.24323977301532@, @3.0@), as CAD programs write it; outside
+-- 1e-5 .. 1e16 the general formatter is used.
+--
+-- Each layout is one linbuf 'F.Bounded' run in the output buffer through the Builder bridge
+-- ('asBoundedPrim'); which layout (a sign or none, below 1e-4 or not) is bytestring's 'condB', linbuf having
+-- no choice between two Bounded of different sizes.
 module DXF.Tag.Double
-  ( doubleText, writeDouble
+  ( doubleText, writeDouble, realPrim
   ) where
 
-import Data.Array.Base (unsafeAt)
-import Data.Array.Unboxed (UArray, listArray)
-import Data.Bits
 import qualified Data.ByteString.Builder as BB
-import Data.ByteString.Builder.Prim (primBounded)
-import Data.ByteString.Builder.Prim.Internal (boundedPrim)
-import Data.Word
-import Foreign.Marshal.Utils (copyBytes, fillBytes)
-import Foreign.Ptr
-import Foreign.Storable
-import GHC.Float (castDoubleToWord64)
+import Data.ByteString.Builder.Prim (BoundedPrim, condB, primBounded, (>$<))
+import Data.ByteString.Builder.Prim.Internal (runB)
+import Data.Word (Word64, Word8)
+import Foreign.Ptr (Ptr)
+import LinBuf.Builder (asBoundedPrim)
+import LinBuf.Fixed (Sized (..))
+import qualified LinBuf.Fixed as F
+import LinBuf.Real (shortestDigits, wordDecPadded)
 
 doubleText :: Double -> BB.Builder
 doubleText d
-  | a >= 1e-5 && a < 1e16 = primBounded (boundedPrim 64 writeDouble) d
+  | a >= 1e-5 && a < 1e16 = primBounded realPrim d
   | d == 0 = if isNegativeZero d then "-0.0" else "0.0"
   | otherwise = BB.doubleDec d
   where a = abs d
 {-# INLINE doubleText #-}
 
--- | 10^(-348 + 8 i) as a 64-bit significand and a binary exponent, for i in 0..86.
-cachedF :: UArray Int Word64
-cachedF = listArray (0, 86) (map fst cachedTable)
-
-cachedE :: UArray Int Int
-cachedE = listArray (0, 86) (map snd cachedTable)
-
-cachedTable :: [(Word64, Int)]
-cachedTable = [entry (-348 + 8 * i) | i <- [0 .. 86]]
-  where
-    entry :: Int -> (Word64, Int)
-    entry p = norm (bl num - bl den - 64)
-      where
-        (num, den) = if p >= 0 then (10 ^ p, 1) else (1, 10 ^ negate p) :: (Integer, Integer)
-        bl :: Integer -> Int
-        bl = length . takeWhile (> 0) . iterate (`shiftR` 1)
-        scaled e = if e >= 0 then rdiv num (den `shiftL` e) else rdiv (num `shiftL` negate e) den
-        rdiv a b = (2 * a + b) `div` (2 * b)
-        norm e = let x = scaled e
-                 in if x >= 2 ^ (64 :: Int) then norm (e + 1)
-                    else if x < 2 ^ (63 :: Int) then norm (e - 1)
-                    else (fromInteger x, e)
-
-pow10 :: UArray Int Word64
-pow10 = listArray (0, 19) (iterate (* 10) 1)
-
--- | The high 64 bits of a product, rounded.
-mulhi :: Word64 -> Word64 -> Word64
-mulhi a b = ac + (ad `unsafeShiftR` 32) + (bc `unsafeShiftR` 32) + (tmp `unsafeShiftR` 32)
-  where
-    m = 0xffffffff
-    ah = a `unsafeShiftR` 32; al = a .&. m
-    bh = b `unsafeShiftR` 32; bl' = b .&. m
-    ac = ah * bh; bc = al * bh; ad = ah * bl'; bd = al * bl'
-    tmp = (bd `unsafeShiftR` 32) + (ad .&. m) + (bc .&. m) + 0x80000000
-
--- | Sign, digits and the point, for a double in range (at most 64 bytes).
+-- | Sign, digits and the point, for a double of magnitude in 1e-5 .. 1e16 (at most 42 bytes).
 writeDouble :: Double -> Ptr Word8 -> IO (Ptr Word8)
-writeDouble d p0 = do
-  p <- if d < 0 then poke p0 45 >> pure (p0 `plusPtr` 1) else pure p0
-  let !bits = castDoubleToWord64 (abs d)
-      !ef = fromIntegral (bits `unsafeShiftR` 52) :: Int
-      !mant = bits .&. 0xfffffffffffff
-      !f = mant .|. 0x10000000000000
-      !e = ef - 1075
-      -- boundaries of the rounding interval, the upper one normalised
-      !pf0 = f * 2 + 1
-      !s = countLeadingZeros pf0
-      !pf = pf0 `unsafeShiftL` s
-      !pe = e - 1 - s
-      !big = mant == 0 && ef > 1
-      !mf0 = if big then f * 4 - 1 else f * 2 - 1
-      !me0 = if big then e - 2 else e - 1
-      !mf = mf0 `unsafeShiftL` (me0 - pe)
-      !sv = countLeadingZeros f
-      !vf = f `unsafeShiftL` sv
-      -- cached power of ten
-      !dk = fromIntegral (-61 - pe) * 0.30102999566398114 + 347 :: Double
-      !kt = truncate dk :: Int   -- dk is positive: ceiling by hand, with the primitive conversion
-      !k0 = if fromIntegral kt < dk then kt + 1 else kt
-      !idx = (k0 `unsafeShiftR` 3) + 1
-      !kk = 348 - 8 * idx
-      !cf = unsafeAt cachedF idx
-      !ce = unsafeAt cachedE idx
-      !w = mulhi vf cf
-      !wp = mulhi pf cf - 1
-      !wm = mulhi mf cf + 1
-      !sh = negate (pe + ce + 64)
-      !buf = p `plusPtr` 32 :: Ptr Word8
-  (n, k) <- digitGen buf w wp (wp - wm) sh kk
-  let pos = n + k
-  if k >= 0
-    then do copyBytes p buf n
-            fillBytes (p `plusPtr` n) 48 k
-            pokeByteOff p pos (46 :: Word8)
-            pokeByteOff p (pos + 1) (48 :: Word8)
-            pure (p `plusPtr` (pos + 2))
-    else if pos > 0
-      then do copyBytes p buf pos
-              pokeByteOff p pos (46 :: Word8)
-              copyBytes (p `plusPtr` (pos + 1)) (buf `plusPtr` pos) (n - pos)
-              pure (p `plusPtr` (n + 1))
-      else do pokeByteOff p 0 (48 :: Word8)
-              pokeByteOff p 1 (46 :: Word8)
-              fillBytes (p `plusPtr` 2) 48 (negate pos)
-              copyBytes (p `plusPtr` (2 - pos)) buf n
-              pure (p `plusPtr` (2 - pos + n))
+writeDouble = runB realPrim
+{-# INLINE writeDouble #-}
 
--- | The digits of the upper bound @mp@, as few as keep them in the interval
--- of width @delta@; (count, decimal exponent).
-digitGen :: Ptr Word8 -> Word64 -> Word64 -> Word64 -> Int -> Int -> IO (Int, Int)
-digitGen !buf !w !mp !delta0 !sh !k0 = intLoop p1 dv0 kappa0 0
+realPrim :: BoundedPrim Double
+realPrim = condB (< 0) (negate >$< condB small (asBoundedPrim negBelow) (asBoundedPrim negPlain))
+                       (condB small (asBoundedPrim below) (asBoundedPrim plain))
+  where small = (< 1e-4)
+
+-- | A magnitude of at least 1e-4: the integer part, the point, the fraction (at least one digit; at most 20,
+-- as the shortest digits are at most 17 and the point at most three places before them).
+plain :: Double -> F.Bounded 41
+plain x = F.wordDec (fromIntegral i) <+> F.bounded (F.u8 46) <+> wordDecPadded l (fromIntegral f)
   where
-    one = 1 `unsafeShiftL` sh :: Word64
-    mask = one - 1
-    wpw = mp - w
-    p1 = mp `unsafeShiftR` sh
-    p2 = mp .&. mask
-    kappa0 = dcount 0 :: Int
-    dcount !k = if k < 20 && unsafeAt pow10 k <= p1 then dcount (k + 1) else k
-    dv0 = if kappa0 == 0 then 1 else unsafeAt pow10 (kappa0 - 1)
-    emit len v = if v /= 0 || len /= 0 then pokeByteOff buf len (48 + fromIntegral v :: Word8) >> pure (len + 1) else pure len
-    intLoop !q !dv !kappa !len
-      | kappa == 0 = fracLoop p2 delta0 0 len
-      | otherwise = do
-          let dgt = q `quot` dv
-              r = q `rem` dv
-              kappa' = kappa - 1
-              tmp = (r `unsafeShiftL` sh) + p2
-          len' <- emit len dgt
-          if tmp <= delta0
-            then roundDown len' delta0 tmp (dv `unsafeShiftL` sh) wpw >> pure (len', k0 + kappa')
-            else intLoop r (dv `quot` 10) kappa' len'
-    fracLoop !q !dl !kappa !len = do
-      let q' = q * 10
-          dl' = dl * 10
-          dgt = q' `unsafeShiftR` sh
-          q'' = q' .&. mask
-          kappa' = kappa - 1 :: Int
-      len' <- emit len dgt
-      if q'' < dl'
-        then roundDown len' dl' q'' one (wpw * unsafeAt pow10 (negate kappa')) >> pure (len', k0 + kappa')
-        else fracLoop q'' dl' kappa' len'
-    -- move the last digit closer to the true value while it stays inside
-    roundDown len delta rest0 tenK wpw' = go rest0
-      where
-        go !rest
-          | rest < wpw' && delta - rest >= tenK && (rest + tenK < wpw' || wpw' - rest > rest + tenK - wpw') = do
-              c <- peekByteOff buf (len - 1) :: IO Word8
-              pokeByteOff buf (len - 1) (c - 1)
-              go (rest + tenK)
-          | otherwise = pure ()
+    (m, _, e) = shortestDigits x
+    l = if e >= 0 then 1 else negate e
+    (i, f) | e >= 0 = (m * p10 e, 0)
+           | l < 20 = m `quotRem` p10 l
+           | otherwise = (0, m)
+{-# INLINE plain #-}
+
+-- | A magnitude in 1e-5 .. 1e-4: its first digit is the fifth after the point (the shortest digits of a double
+-- below the double 1e-4 are below 1e-4, those of one at or above the double 1e-5 at or above 1e-5).
+below :: Double -> F.Bounded 26
+below x = F.bounded zeros4 <+> F.wordDec (fromIntegral m)
+  where (m, _, _) = shortestDigits x
+{-# INLINE below #-}
+
+zeros4 :: F.Fixed 6
+zeros4 = F.u8 48 <+> F.u8 46 <+> F.u8 48 <+> F.u8 48 <+> F.u8 48 <+> F.u8 48
+{-# INLINE zeros4 #-}
+
+negPlain :: Double -> F.Bounded 42
+negPlain x = F.bounded (F.u8 45) <+> plain x
+{-# INLINE negPlain #-}
+
+negBelow :: Double -> F.Bounded 27
+negBelow x = F.bounded (F.u8 45) <+> below x
+{-# INLINE negBelow #-}
+
+-- | 10^k, for k in 0 .. 19.
+p10 :: Int -> Word64
+p10 k = case k of
+  0 -> 1; 1 -> 10; 2 -> 100; 3 -> 1000; 4 -> 10000; 5 -> 100000; 6 -> 1000000; 7 -> 10000000
+  8 -> 100000000; 9 -> 1000000000; 10 -> 10000000000; 11 -> 100000000000; 12 -> 1000000000000
+  13 -> 10000000000000; 14 -> 100000000000000; 15 -> 1000000000000000; 16 -> 10000000000000000
+  17 -> 100000000000000000; 18 -> 1000000000000000000; _ -> 10000000000000000000
+{-# INLINE p10 #-}

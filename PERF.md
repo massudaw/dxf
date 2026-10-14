@@ -211,7 +211,7 @@ exports of millions of lines matter.
 * The small files parse at 46-74 MB/s (cold single run / steady state), below the 100 MB/s aim; f001
   reaches it. What remains is allocation (40 bytes per input byte) in the FastKit reader monad and the
   per-entity records; unboxed-sum return types or a fixed-shape VERTEX decoder are the next step.
-* Doubles are formatted again (shortest digits, which reproduces CAD output byte for byte) rather than
+* Doubles are formatted again (shortest digits: linbuf's Schubfach since the reals' move) rather than
   copied from the source bytes: a copy would cost 20+ bytes per number held in memory.
 
 
@@ -324,9 +324,44 @@ Against HEAD on the same linbuf (5-7 runs, load 11-16): f001 printloop 28.16 G i
 reruns of the same pair.  SAME bytes on every output (f001, CPQ, both writes); the whole check passes.
 
 Not moved: a short string's copy (`unsafeUseAsCString` + `copyBytes`; linbuf has no `Bounded` copying
-up to n bytes of a `ByteString`) and the reals (`DXF.Tag.Double`, Grisu2: left alone by AGENTS.md;
-linbuf a4478a7's `shortestDigits` is Schubfach -- where Grisu2 is not shortest the bytes would change,
-which is a change of output for the user to decide, not of code).
+up to n bytes of a `ByteString`) and, at this step, the reals (below).
+
+### The reals on `LinBuf.Real.shortestDigits` (the user's decision, 2026-10-14)
+
+**From this commit the output bytes change by design: shorter digits, the same values.**  The user allowed
+linbuf's `shortestDigits` (Schubfach: the fewest digits that read back, the closest of those, ties to even)
+to replace dxf's Grisu2 if every real reads back to the same double.  `DXF.Tag.Double` is now dxf's layout
+(plain decimal, `I.F`, at least one fraction digit) over `shortestDigits`: the integer part `wordDec`, the
+point, the fraction `wordDecPadded` -- one linbuf `Bounded` a layout, run at the builder's address by
+`asBoundedPrim`.  The choice between layouts (a sign or none; below 1e-4, where the fraction can be 21
+digits and `wordDecPadded` stops at 20, `0.0000` then the digits) is bytestring's `condB`: linbuf has no
+choice between two `Bounded`s of different sizes (requested in 29e3f67f).  Grisu2, its cached powers and
+its `Ptr` digit loop are gone.
+
+Held against the previous printer on all 93 samples and the 20 fixtures (`Check.Reals.realsReport`: each
+file printed by the HEAD binary against the new print, tag by tag):
+
+* 258 of 946,955 reals changed text, all in one file (f001 / `3CG`); every other file the same bytes.
+  240 shorter, 18 the same length (the closer of two shortest), none longer.  E.g.
+  `23262.283155407298 -> 23262.2831554073`, `6620.1543850411535 -> 6620.154385041154`,
+  `174956.28344109101 -> 174956.283441091`, `79231.96733296097 -> 79231.96733296096`.
+* every changed real reads back (dxf's `readDouble`) to the bit-identical double of its old text; no tag but
+  a real differs; the tag codes are the same.
+* every file's new print parses back to the original's model (`parse (print d) == d`), and the whole
+  check passes (43); the doubles check now requires the shortest digits for every sample real (it allowed
+  one in 200 longer under Grisu2).
+
+Against HEAD (1e055be) on the same linbuf (5 runs, least CPU, load 7-10):
+
+| program | CPU s | G instr | ratio (instr) | bytes |
+|---|--:|--:|--:|---|
+| f001 printloop | 2.73 / 3.59 | 25.44 / 28.11 | 0.91 | 258 reals shorter or closer |
+| f001 round 3 | 0.86 / 0.97 | 7.89 / 8.15 | 0.97 | (the same 258) |
+| CPQ-0005 round 60 | 0.89 / 0.90 | 8.07 / 8.07 | 1.00 | SAME |
+| write 100k R2010 | 0.69 / 0.69 | 5.30 / 5.33 | 0.99 | SAME |
+| write 100k R12 | 0.61 / 0.62 | 4.84 / 4.86 | 1.00 | SAME |
+
+Allocation and peak unchanged (f001 round 3: 807 MB, 118 MB).
 
 ### What is left
 
@@ -335,12 +370,12 @@ which is a change of output for the user to decide, not of code).
 | `Tag.Text` (`codeLine`) | `unsafeShiftR` | a shift by `8 * k`, `k < 8`: never past the word; no memory read. Right as it is |
 | `Number` | `MagicHash` (`Double#` in an unboxed sum) | the unboxed sum is what keeps a read real from being allocated; no memory access. Right as it is |
 | `Number.Lemire` | `unsafeAt` (the power-of-ten table, its index range-checked just before), `unsafeShift*`, `timesWord2#` | arithmetic and a constant table, not a buffer: nothing of linbuf's. Right as it is |
-| `Tag.Double` | `Ptr` writer, `unsafeAt`, `unsafeShift*`, `boundedPrim` | the shortest-real printer: left alone by AGENTS.md (not covered by linbuf) |
+| `Tag.Double` | `runB` (to run the layout at a `Ptr` inside `Tag.Prim`'s tag writer), `condB` | the reals are linbuf's `shortestDigits` laid out in linbuf `Bounded`s; bytestring's `condB` chooses the layout, linbuf having no choice between `Bounded`s (requested, 29e3f67f) |
 | `Tag.Prim`, `Entity.FastOut`, `Entity.Common` | `Ptr Word8` positions (`plusPtr`), `boundedPrim`, `unsafeUseAsCString` + `copyBytes` | the stores are linbuf's (step 4); what stays is the layout between them -- a tag's shape is chosen at run time and a `Bounded`'s size is in its type -- and a short string's copy: linbuf has no `Bounded` copying a `ByteString` of at most n bytes (requested) |
 | `Entity.Fast` (`afterType`) | `unsafeForeignPtrToPtr`, `minusPtr` | the offset of a tag's value inside the input, from the two addresses; nothing is read through them, and the offset is verified (`slice bs off e == ty`, bounds checked) before use. linbuf has no "offset of a slice in its parent"; right as it is |
 | `Entity.FastKit` | `MagicHash` (`D#`) | builds a `Double` from the number reader's unboxed result; no memory access. Right as it is |
 | `Intern` | `unsafeDupablePerformIO` | `intern` is pure over a table made for one parse (interning does not change a value). Right as it is |
 | `Parse` | `unsafePerformIO` | `try`/`evaluate` turning the parser's `DxfError` into `Either`, and the per-parse interning table. Right as it is |
 
-Moved: `Tag.Text` (the tag reader: `index64le`, `index8`, `sliceAt`), `Tag.Binary` (`index8`), `Number` (`peek8`, `index8`), `Tag.Prim` (`LinBuf.Fixed` stores through `LinBuf.Builder`), `Intern` (`LinBuf.Ints`,
+Moved: `Tag.Text` (the tag reader: `index64le`, `index8`, `sliceAt`), `Tag.Binary` (`index8`), `Number` (`peek8`, `index8`), `Tag.Prim` (`LinBuf.Fixed` stores through `LinBuf.Builder`), `Tag.Double` (`LinBuf.Real.shortestDigits`, `wordDec`, `wordDecPadded`), `Intern` (`LinBuf.Ints`,
 `readMasked`/`writeMasked`).

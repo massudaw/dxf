@@ -5,14 +5,14 @@
 -- 1e-5 .. 1e16 the general formatter is used.
 --
 -- Each layout is one linbuf 'F.Bounded' run in the output buffer through the Builder bridge
--- ('asBoundedPrim'); which layout (a sign or none, below 1e-4 or not) is bytestring's 'condB', linbuf having
--- no choice between two Bounded of different sizes.
+-- ('asBoundedPrim'); which layout (a sign or none, below 1e-4 or not) is linbuf's 'F.choose', the smaller
+-- layouts widened ('F.widen') to the size of the larger.
 module DXF.Tag.Double
   ( doubleText, writeDouble, realPrim
   ) where
 
 import qualified Data.ByteString.Builder as BB
-import Data.ByteString.Builder.Prim (BoundedPrim, condB, primBounded, (>$<))
+import Data.ByteString.Builder.Prim (BoundedPrim, primBounded)
 import Data.ByteString.Builder.Prim.Internal (runB)
 import Data.Word (Word64, Word8)
 import Foreign.Ptr (Ptr)
@@ -35,9 +35,16 @@ writeDouble = runB realPrim
 {-# INLINE writeDouble #-}
 
 realPrim :: BoundedPrim Double
-realPrim = condB (< 0) (negate >$< condB small (asBoundedPrim negBelow) (asBoundedPrim negPlain))
-                       (condB small (asBoundedPrim below) (asBoundedPrim plain))
-  where small = (< 1e-4)
+realPrim = asBoundedPrim real
+
+-- | A sign or none, then the magnitude.
+real :: Double -> F.Bounded 42
+real x = F.choose (x < 0) (F.bounded (F.u8 45) <+> magnitude (negate x)) (F.widen (magnitude x))
+{-# INLINE real #-}
+
+magnitude :: Double -> F.Bounded 41
+magnitude a = F.choose (a < 1e-4) (F.widen (below a)) (plain a)
+{-# INLINE magnitude #-}
 
 -- | A magnitude of at least 1e-4: the integer part, the point, the fraction (at least one digit; at most 20,
 -- as the shortest digits are at most 17 and the point at most three places before them).
@@ -61,14 +68,6 @@ below x = F.bounded zeros4 <+> F.wordDec (fromIntegral m)
 zeros4 :: F.Fixed 6
 zeros4 = F.u8 48 <+> F.u8 46 <+> F.u8 48 <+> F.u8 48 <+> F.u8 48 <+> F.u8 48
 {-# INLINE zeros4 #-}
-
-negPlain :: Double -> F.Bounded 42
-negPlain x = F.bounded (F.u8 45) <+> plain x
-{-# INLINE negPlain #-}
-
-negBelow :: Double -> F.Bounded 27
-negBelow x = F.bounded (F.u8 45) <+> below x
-{-# INLINE negBelow #-}
 
 -- | 10^k, for k in 0 .. 19.
 p10 :: Int -> Word64

@@ -376,6 +376,13 @@ Against HEAD (1e055be) on the same linbuf (5 runs, least CPU, load 7-10):
 
 Allocation and peak unchanged (f001 round 3: 807 MB, 118 MB).
 
+The choice of layout, after linbuf 25c7637 (`choose`, `widen`, answering 29e3f67f): `condB` is gone; a
+real is one linbuf `Bounded 42` -- `choose (x < 0)` between the sign and the magnitude, and the plain
+layout, the magnitude `choose (a < 1e-4)` between `below` widened from 26 to 41 and `plain`.  Against
+HEAD (4ebc02f), least CPU of 5-7 runs, load 8-12: f001 printloop 24.84 / 24.77 G instr (1.00x, CPU 1.00x),
+f001 round 3 7.86 / 7.88 (1.00x), write 100k R2010 5.30 / 5.29 (1.00x), CPQ-0005 round 60 8.04 / 8.03
+(1.00x); the same bytes; the whole check passes.
+
 ### What is left
 
 | module | what | why it stays |
@@ -383,7 +390,7 @@ Allocation and peak unchanged (f001 round 3: 807 MB, 118 MB).
 | `Tag.Text` (`codeLine`) | `unsafeShiftR` | a shift by `8 * k`, `k < 8`: never past the word; no memory read. Right as it is |
 | `Number` | `MagicHash` (`Double#` in an unboxed sum) | the unboxed sum is what keeps a read real from being allocated; no memory access. Right as it is |
 | `Number.Lemire` | `unsafeAt` (the power-of-ten table, its index range-checked just before), `unsafeShift*`, `timesWord2#` | arithmetic and a constant table, not a buffer: nothing of linbuf's. Right as it is |
-| `Tag.Double` | `runB` (to run the layout at a `Ptr` inside `Tag.Prim`'s tag writer), `condB` | the reals are linbuf's `shortestDigits` laid out in linbuf `Bounded`s; bytestring's `condB` chooses the layout, linbuf having no choice between `Bounded`s (requested, 29e3f67f) |
+| `Tag.Double` | `runB` (to run the layout at a `Ptr` inside `Tag.Prim`'s tag writer) | a real is one linbuf `Bounded` (`shortestDigits`, the layout chosen by `choose`/`widen`); `runB` stays while `Tag.Prim`'s tag writer is a `Ptr` writer |
 | `Tag.Prim`, `Entity.FastOut`, `Entity.Common` | `Ptr Word8` positions (`plusPtr`), `boundedPrim` | the stores are linbuf's (step 4), the short string's copy too (`bytesUpTo`, linbuf 25c7637); what stays is the layout between them -- a tag's shape is chosen at run time and a `Bounded`'s size is in its type |
 | `Entity.Fast` (`afterType`) | `unsafeForeignPtrToPtr`, `minusPtr` | the offset of a tag's value inside the input, from the two addresses; nothing is read through them, and the offset is verified (`slice bs off e == ty`, bounds checked) before use. linbuf has no "offset of a slice in its parent"; right as it is |
 | `Entity.FastKit` | `MagicHash` (`D#`) | builds a `Double` from the number reader's unboxed result; no memory access. Right as it is |

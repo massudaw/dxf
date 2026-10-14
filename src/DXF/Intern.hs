@@ -5,78 +5,58 @@
 -- that none keeps a slice of the input alive and equal strings are the
 -- same bytes in memory ('==' on 'B.ByteString' tries the pointer first).
 --
--- One table is made per parse and used by the fast decoders and by the
--- general path alike.  It is a direct-mapped cache in front of a map:
--- the hot case, the same string as a moment ago, is a hash of a few
--- bytes and one comparison.  'intern' is pure -- interning does not change
--- a value, so the order in which strings reach the table does not matter.
+-- One table is made per parse ('withInterner') and used by the fast
+-- decoders and by the general path alike.  It is a membudget interner,
+-- named @dxf.Intern@ in membudget's registry, with a budget of 20,000
+-- strings (dxf's cap before membudget); over it a string is itself.  The
+-- budget can be set for a run with @DXF_INTERN_BUDGET@ (@e300@: entries,
+-- @b65536@: bytes), to check that a bounded table gives the same output.
+-- 'intern' is pure -- interning does not change a value, so the order in
+-- which strings reach the table does not matter.
 module DXF.Intern
-  ( Interner, newInterner, intern, internMaybe, internSize
+  ( Interner, withInterner, intern, internMaybe, internSize, internBudget
   ) where
 
-import Control.Monad.ST (RealWorld, stToIO)
-import Data.Array.IO (IOArray, newArray, readArray, writeArray)
-import Data.Bits (shiftR, xor)
 import qualified Data.ByteString as B
-import Data.IORef
-import qualified Data.Map.Strict as M
-import LinBuf.Ints (Ints, newInts, readMasked, writeMasked)
-import System.IO.Unsafe (unsafeDupablePerformIO)
+import qualified Data.ByteString.Char8 as BC
+import MemBudget (global)
+import MemBudget.Budget (Budget, bytes, entries)
+import qualified MemBudget.Intern as MI
+import System.Environment (lookupEnv)
 
--- | The cache holds, for each hash slot, the number of the string last seen
--- there (-1: none); the strings are kept in 'iStrings' by number, and the
--- map gives the number of every string held.
-data Interner = Interner
-  { iCache   :: !(Ints RealWorld)
-  , iStrings :: !(IOArray Int B.ByteString)
-  , iMap     :: !(IORef (M.Map B.ByteString Int))
-  }
+type Interner = MI.Interner B.ByteString
 
--- | A new table.  Strings longer than 'maxLen' are left alone, and the
--- table stops growing at 'maxStrings'.
-newInterner :: IO Interner
-newInterner = Interner <$> stToIO (newInts slots (-1)) <*> newArray (0, maxStrings - 1) B.empty <*> newIORef M.empty
+-- | The table's budget: 20,000 strings, or @DXF_INTERN_BUDGET@.
+internBudget :: Budget
+internBudget = global (maybe (entries 20000) parse <$> lookupEnv "DXF_INTERN_BUDGET")
+  where
+    parse s = case BC.uncons (BC.pack s) of
+      Just ('b', n) -> bytes (number n)
+      Just ('e', n) -> entries (number n)
+      _ -> entries (number (BC.pack s))
+    number n = maybe 20000 fst (BC.readInt n)
+{-# NOINLINE internBudget #-}
 
-slots, maxLen, maxStrings :: Int
-slots = 1024
-maxLen = 64
-maxStrings = 20000
+-- | A value made with a fresh table (one parse's).
+withInterner :: (Interner -> a) -> a
+withInterner = MI.withInterner internBudget "dxf.Intern"
+{-# INLINE withInterner #-}
 
 -- | The distinct strings held.
 internSize :: Interner -> IO Int
-internSize t = M.size <$> readIORef (iMap t)
+internSize = MI.internSize
 
-hash :: B.ByteString -> Int
-hash v = let h = B.foldl' (\a w -> a * 33 + fromIntegral w) 5381 v in h `xor` (h `shiftR` 10)
+maxLen :: Int
+maxLen = 64
 
--- | The one copy of a string.
+-- | The one copy of a string (the string itself when it is empty, longer
+-- than 64 bytes, or over the budget).
 intern :: Interner -> B.ByteString -> B.ByteString
 intern t v
   | n == 0 || n > maxLen = v
-  | otherwise = unsafeDupablePerformIO $ do
-      let !h = hash v
-      k <- stToIO (readMasked (iCache t) h)
-      if k < 0 then slow t h v else do
-        c <- readArray (iStrings t) k
-        if c == v then pure c else slow t h v
-  where n = B.length v
+  | otherwise = MI.intern t v
+  where !n = B.length v
 {-# INLINE intern #-}
-
-slow :: Interner -> Int -> B.ByteString -> IO B.ByteString
-slow t h v = do
-  m <- readIORef (iMap t)
-  case M.lookup v m of
-    Just k -> stToIO (writeMasked (iCache t) h k) >> readArray (iStrings t) k
-    Nothing
-      | M.size m >= maxStrings -> pure v
-      | otherwise -> do
-          let !c = B.copy v
-              !k = M.size m
-          writeArray (iStrings t) k c
-          writeIORef (iMap t) $! M.insert c k m
-          stToIO (writeMasked (iCache t) h k)
-          pure c
-{-# NOINLINE slow #-}
 
 internMaybe :: Interner -> Maybe B.ByteString -> Maybe B.ByteString
 internMaybe t (Just v) = Just $! intern t v

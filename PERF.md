@@ -460,8 +460,8 @@ the printer's move stops.
 | `Entity.FastOut`, `Entity.Common` | `Ptr Word8` positions, `boundedPrim` | an entity (a LINE's head and numbers, a plain head) is one primitive of several tags.  As one `Bounded` of tags (each optional tag a `choose`) it cost +6 % instructions on the small samples (above): not moved.  What linbuf would need: a `Ptr`-taking runner for a `Bounded` (b0b82522 (b)) so these stay as they are without bytestring's `runB` |
 | `Entity.Fast` (`afterType`) | `unsafeForeignPtrToPtr`, `minusPtr` | the offset of a tag's value inside the input, from the two addresses; nothing is read through them, and the offset is verified (`slice bs off e == ty`, bounds checked) before use. linbuf has no "offset of a slice in its parent"; right as it is |
 | `Entity.FastKit` | `MagicHash` (`D#`) | builds a `Double` from the number reader's unboxed result; no memory access. Right as it is |
-| `Intern` | `unsafeDupablePerformIO` | `intern` is pure over a table made for one parse (interning does not change a value). Right as it is |
-| `Parse` | `unsafePerformIO` | `try`/`evaluate` turning the parser's `DxfError` into `Either`, and the per-parse interning table. Right as it is |
+| `Intern` | (none since Part four) | the table is membudget's `MemBudget.Intern`: no `LinBuf.Ints`, no `unsafe*` in dxf |
+| `Parse` | `unsafePerformIO` | `try`/`evaluate` turning the parser's `DxfError` into `Either` (the per-parse table is membudget's `withInterner` since Part four). Right as it is |
 
 Moved: `Tag.Text` (the tag reader: `index64le`, `index8`, `sliceAt`), `Tag.Binary` (`index8`), `Number` (`peek8`, `index8`), `Tag.Prim` (`LinBuf.Fixed` stores through `LinBuf.Builder`), `Tag.Double` (`LinBuf.Real.shortestDigits`, `wordDec`, `wordDecPadded`), `Intern` (`LinBuf.Ints`,
 `readMasked`/`writeMasked`).
@@ -481,3 +481,47 @@ The baseline is HEAD before the move (af68394), the programs of Part three (`ben
 | f001 printloop | 3.02 | 26.12 | 83 | 2829 |
 | write 100k R2010 | 0.87 | 5.48 | 232 | 979 |
 | write 100k R12 | 0.67 | 4.94 | 213 | 937 |
+
+### Step 2: `DXF.Intern` on `MemBudget.Intern`
+
+As adopting.md says: the same API and rule (a string of 1 to 64 bytes is interned, others are themselves);
+the table is `MemBudget.Intern`, named **`dxf.Intern`** in membudget's registry, with the budget adopting.md
+proposes, **20,000 strings** (`entries 20000`, dxf's own cap before).  The direct-mapped front (1024 slots),
+the `Map` and the 20,000-string array are gone, and with them dxf's `unsafeDupablePerformIO`; a parse's table
+is made by `MI.withInterner` (`Parse.newTable`, still depending on the input so two parses never share
+one).  `DXF_INTERN_BUDGET` (`e16`: entries, `b4096`: bytes) sets the budget for a run; `MB_REPORT=1` makes
+`dxf-bench` print membudget's report on stderr.
+
+| program | CPU s | G instr (vs baseline) | peak MB | alloc MB | bytes |
+|---|--:|--:|--:|--:|---|
+| f001 round 3 | 0.89 | 7.98 (-0.1 %) | 118 | 735 | SAME |
+| CPQ-0005 round 60 | 0.93 | 8.10 (-1.3 %) | 29 | 957 | SAME |
+| condo A-301 round 60 | 0.99 | 7.96 (+0.4 %) | 25 | 887 | SAME |
+| f001 printloop | 3.07 | 26.13 (0.0 %) | 83 | 2829 | -- |
+| write 100k R2010 | 0.69 | 5.36 (-2.2 %) | 232 | 979 | SAME |
+| write 100k R12 | 0.61 | 4.91 (-0.6 %) | 213 | 937 | SAME |
+
+Peak: the heap's is lower and the process's the same within its noise.  `+RTS -s` on condo A-301 round 60:
+maximum residency 4,178,192 bytes before, 4,041,992 after (-136 KB: the front array and the string array that
+were there whatever the drawing).  The resident set of CPQ-0005, 5 runs of each: 29.59-29.87 MB before,
+29.77-29.98 after; the executable is 0.58 MB larger (membudget's code), which is what the +1 MB of the
+rounded figures on the two small files is, against a heap that holds less.
+
+What the table holds (`MB_REPORT=1`, one parse): f001 107 strings in 14 KB (224,805 hits, 107 misses);
+CPQ-0005 17 strings, 2.6 KB.
+
+BOUNDED: with `DXF_INTERN_BUDGET=e16` (16 strings, below f001's 107) the table holds 16 entries, 2,344
+bytes (2,344 B/16 entries in the report; 224,880 refused); f001, CPQ-0005 and condo A-301 print the SAME
+bytes as the natural run.  `dxf-summary` (entities by type, layers, blocks) of all 93 samples, natural, with
+`e16` and with `b4096`: the same on every one.  Moved.
+
+### What is left (Part four)
+
+| where | what | why it stays |
+|---|---|---|
+| `Parse` (`parseDXF`, `parseGeneral`) | `unsafePerformIO` | `try`/`evaluate` turning the parser's thrown `DxfError` into an `Either`: no table.  Right as it is |
+| `Intern` (`internBudget`) | membudget's `global` (a CAF) | the budget read once from `DXF_INTERN_BUDGET`; membudget's, not an `unsafe*` of dxf's |
+
+| `Number.Lemire` (`table`) | a top-level `NOINLINE` array (a CAF) | the 651 128-bit powers of ten of the Eisel-Lemire reader, computed once: a constant of fixed size (about 40 KB), not a memo or a cache -- nothing to budget, and no `unsafePerformIO`.  Right as it is |
+
+No other memo, cache or global table is in dxf: the interner was the one.

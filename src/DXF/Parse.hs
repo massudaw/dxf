@@ -53,7 +53,7 @@ parseWith fast bs = Document fmt' pre secs
 -- | The table of strings for one parse (it depends on the input, so that
 -- two parses never share one by accident of floating).
 newTable :: B.ByteString -> Interner
-newTable bs = unsafePerformIO (B.length bs `seq` newInterner)
+newTable bs = withInterner (\t -> B.length bs `seq` t)
 {-# NOINLINE newTable #-}
 
 isSection :: Tag -> Bool

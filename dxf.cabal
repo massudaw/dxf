@@ -54,7 +54,7 @@ executable dxf-summary
 executable dxf-bench
   main-is:          Bench.hs
   hs-source-dirs:   app
-  build-depends:    base, bytestring, containers, deepseq, dxf
+  build-depends:    base, bytestring, containers, deepseq, dxf, membudget
   default-language: Haskell2010
   ghc-options:      -O2 -rtsopts
 
@@ -110,7 +110,7 @@ library
                     DXF.Build.Entities
                     DXF.Build.Skeleton
                     DXF.Build
-  build-depends:    base >=4.8 && <5, array, bytestring, containers, text, deepseq, linbuf
+  build-depends:    base >=4.8 && <5, array, bytestring, containers, text, deepseq, linbuf, membudget
   hs-source-dirs:   src
   default-language: Haskell2010
   ghc-options:      -O2 -Wall -Wno-name-shadowing -Wno-unused-do-bind

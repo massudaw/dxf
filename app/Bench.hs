@@ -17,7 +17,9 @@ import Foreign.Ptr (ptrToIntPtr)
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
 import GHC.Clock (getMonotonicTime)
-import System.Environment (getArgs)
+import System.Environment (getArgs, lookupEnv)
+import System.IO (hPutStr, stderr)
+import MemBudget.Registry (report)
 import DXF
 import DXF.Number.Lemire (eiselLemire)
 
@@ -33,7 +35,14 @@ ptrAddr :: ForeignPtr a -> Int
 ptrAddr fp = fromIntegral (ptrToIntPtr (unsafeForeignPtrToPtr fp))
 
 main :: IO ()
-main = do
+main = body >> mbReport
+
+-- | membudget's report of every table, on stderr, when @MB_REPORT@ is set (the output untouched).
+mbReport :: IO ()
+mbReport = lookupEnv "MB_REPORT" >>= mapM_ (const (report >>= hPutStr stderr))
+
+body :: IO ()
+body = do
   (path : mode) <- getArgs
   bs <- timed "read" (B.readFile path >>= \b -> evaluate (B.length b) >> return b)
   case mode of

@@ -235,6 +235,8 @@ R2010|R12 OUT` (build, to document, print, write).
 | baseline | ed43487 | 1.17 / 8.32 | 1.06 / 7.98 | 0.71 / 7.83 | 3.67 / 29.36 | 0.92 / 5.39 | 0.82 / 4.88 | kept |
 | 2. tag reader on `LinBuf.Index` | c564e67 | 1.23 / 8.46 (+1.7 %) | 1.22 / 7.92 (-0.8 %) | 1.20 / 7.77 (-0.8 %) | -- | -- | -- | SAME |
 | 3. interning on `LinBuf.Ints` | b80e201 | 1.18 / 8.47 (+1.8 %) | 0.96 / 8.11 (+1.6 %) | 0.89 / 7.84 (+0.1 %) | -- | -- | -- | SAME |
+| binary reader on `LinBuf.Index` | 2ac2a7c | (see below: +1.2 % on a binary f001) | | | | | | SAME |
+| all of it, the six programs | (this) | 1.31 / 8.54 (+2.6 %) | 1.13 / 8.12 (+1.8 %) | 1.07 / 7.83 (0.0 %) | 4.63 / 29.47 (+0.4 %) | 1.09 / 5.42 (+0.6 %) | 0.96 / 4.91 (+0.6 %) | SAME |
 
 Peak and allocation of the baseline: f001 round 179 MB / 854 MB, CPQ 28 / 1034, condo 24 / 957, printloop
 83 / 4165, write R2010 233 / 1004, R12 210 / 947.
@@ -268,3 +270,46 @@ with `tagsFile` and a binary `Fmt`, under `/tmp`): `dxf-bench /tmp/f001.bin.dxf 
 `binary-base`, 7 runs -- 5.27 s / 39.66 G instructions before, 5.34 s / 40.13 G after (+1.2 %), the same
 bytes.  (The binary path is slow in itself -- 22 GB allocated for three parses, the values turned to text --
 which is another matter than this move.)
+
+The last row is every program again on the code as it stands (load average 15-17 while it ran: CPU is up
+12-26 % on every row, the write and print rows included, whose code did not change).  The printer's and the
+writer's instructions move by 0.4-0.6 % with no change to their code, which is how much this measure moves on
+its own here; f001's parse is +2.6 % (it was +1.8 % right after step 3), the small files +1.8 % and 0.0 %.
+Allocation and peak are unchanged on every row, and every output is the SAME bytes as the baseline's.
+
+Tried and NOT moved: the number reader (`DXF.Number`, its `at` is `unsafeIndex`) on `index8`: f001 8.70 G
+instructions, +2.7 % for this change alone and +4.6 % against the baseline (CPQ +3.0 %) -- every digit of
+every real is read through it, and each read is checked again after the loop's own `j < n`.  Reverted.
+
+### Step 4: the printer -- not done, WAITING on linbuf
+
+The printer's primitives (`DXF.Tag.Prim`, `DXF.Entity.FastOut`, `DXF.Entity.Common.headWriter`) are
+`BoundedPrim`s run inside a `Data.ByteString.Builder`: every codec writes `Out = Fmt -> Builder` (some 20
+modules) and `documentBytes` is that Builder's lazy `ByteString`.  A linbuf `Bounded` writes a
+`MutableByteArray` at an offset and runs only on a linbuf `Buf`: it cannot be used inside a Builder, so the
+move is not one primitive at a time but the whole printer and every codec rewritten to linear `Buf`
+writers.  And most values of a DXF file are reals, printed shortest by `DXF.Tag.Double` (Grisu2, a
+`Ptr` writer, which this move leaves alone): linbuf prints no reals and has no `Bounded` made from a `Ptr`
+writer, so each real would be formatted apart and copied in with `bytes`.  Measured in the session at -O2,
+674,000 reals as tags: in place (as now) 628 ms CPU, 310 MB allocated; formatted apart and copied 888 ms,
+3,433 MB.  The step costs by construction, so it stops here (AGENTS.md: "stop at the first step that
+costs").  Requested of linbuf (report b0b82522): a linbuf `Bounded` run inside a Builder's buffer, or a
+`Bounded` from a pinned-address writer so the real printer writes in place.
+
+### What is left
+
+| module | what | why it stays |
+|---|---|---|
+| `Tag.Text` (`slice`) | `unsafeTake`, `unsafeDrop` | `B.take`/`B.drop` cost +5.5 % instructions, +2 % allocation; linbuf has no checked slice at a position outside its `Parser` -- requested (report 06d57ff7). The offsets are those `nextTag` found in the same bytes |
+| `Tag.Text` (`codeLine`) | `unsafeShiftR` | a shift by `8 * k`, `k < 8`: never past the word; no memory read. Right as it is |
+| `Number` | `unsafeIndex` (`at`), `MagicHash` (`Double#` in an unboxed sum) | `index8` costs +2.7 % (above); the unboxed sum is what keeps a read real from being allocated (no memory access). Would need from linbuf a read of a span checked ONCE with an early exit (a digit loop stops at the first non-digit; `foldFixed` cannot stop) |
+| `Number.Lemire` | `unsafeAt` (the power-of-ten table, its index range-checked just before), `unsafeShift*`, `timesWord2#` | arithmetic and a constant table, not a buffer: nothing of linbuf's. Right as it is |
+| `Tag.Double` | `Ptr` writer, `unsafeAt`, `unsafeShift*`, `boundedPrim` | the shortest-real printer: left alone by AGENTS.md (not covered by linbuf) |
+| `Tag.Prim`, `Entity.FastOut`, `Entity.Common` | `Ptr Word8` writers, `boundedPrim`, `unsafeUseAsCString` | the Builder primitives of step 4: linbuf has no Builder interop -- requested (report b0b82522) |
+| `Entity.Fast` (`afterType`) | `unsafeForeignPtrToPtr`, `minusPtr` | the offset of a tag's value inside the input, from the two addresses; nothing is read through them, and the offset is verified (`slice bs off e == ty`, bounds checked) before use. linbuf has no "offset of a slice in its parent"; right as it is |
+| `Entity.FastKit` | `MagicHash` (`D#`) | builds a `Double` from the number reader's unboxed result; no memory access. Right as it is |
+| `Intern` | `unsafeDupablePerformIO` | `intern` is pure over a table made for one parse (interning does not change a value). Right as it is |
+| `Parse` | `unsafePerformIO` | `try`/`evaluate` turning the parser's `DxfError` into `Either`, and the per-parse interning table. Right as it is |
+
+Moved: `Tag.Text` (the tag reader: `index64le`, `index8`), `Tag.Binary` (`index8`), `Intern` (`LinBuf.Ints`,
+`readMasked`/`writeMasked`).

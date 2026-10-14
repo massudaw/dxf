@@ -277,9 +277,10 @@ writer's instructions move by 0.4-0.6 % with no change to their code, which is h
 its own here; f001's parse is +2.6 % (it was +1.8 % right after step 3), the small files +1.8 % and 0.0 %.
 Allocation and peak are unchanged on every row, and every output is the SAME bytes as the baseline's.
 
-Tried and NOT moved: the number reader (`DXF.Number`, its `at` is `unsafeIndex`) on `index8`: f001 8.70 G
-instructions, +2.7 % for this change alone and +4.6 % against the baseline (CPQ +3.0 %) -- every digit of
-every real is read through it, and each read is checked again after the loop's own `j < n`.  Reverted.
+Tried and NOT moved at first (moved since, below): the number reader (`DXF.Number`, its `at` is
+`unsafeIndex`) on `index8`: f001 8.70 G instructions, +2.7 % for this change alone and +4.6 % against the
+baseline (CPQ +3.0 %) -- every digit of every real is read through it, and each read is checked again
+after the loop's own `j < n`.  Reverted then.
 
 ### After linbuf 208aafd: `sliceAt`, `index8` without `runRW#`
 
@@ -293,6 +294,13 @@ branch makes the slice no longer cheap enough to build speculatively, so the val
 a thunk.  Forced where the tag is built (`let !v = slice ...`): f001 8.31 G against 8.50 G (0.98x), CPU
 equal, PEAK 118 MB against 179 MB (no thunk per tag held); CPQ-0005 1.00x instructions.  SAME bytes,
 the whole check passes.  `Tag.Text` has no `unsafe` read or slice left.
+
+`DXF.Number` (the number reader, NOT moved before at +2.7 %): with the new `index8` as a drop-in for `at`,
+f001 +2.4 % instructions, CPQ +0.6 %.  Read instead with `peek8` (the byte, or -1 past the end: one
+unsigned compare) the loops lose their own `j < n` -- -1 is no digit, sign, point, exponent letter or
+blank, so every guard stops on it as it stopped at the end: f001 8.37 G against 8.39 G (1.00x), CPQ-0005
+8.16 / 8.14, condo A-301 7.88 / 7.85, CPU equal; SAME bytes on all three, the whole check passes (the
+300,000 correctly-rounded reads among it).  `at` (index8) stays only in the slow exact path.
 
 ### Step 4: the printer -- not done, WAITING on linbuf
 
@@ -314,7 +322,7 @@ costs").  Requested of linbuf (report b0b82522): a linbuf `Bounded` run inside a
 | module | what | why it stays |
 |---|---|---|
 | `Tag.Text` (`codeLine`) | `unsafeShiftR` | a shift by `8 * k`, `k < 8`: never past the word; no memory read. Right as it is |
-| `Number` | `unsafeIndex` (`at`), `MagicHash` (`Double#` in an unboxed sum) | `index8` costs +2.7 % (above); the unboxed sum is what keeps a read real from being allocated (no memory access). Would need from linbuf a read of a span checked ONCE with an early exit (a digit loop stops at the first non-digit; `foldFixed` cannot stop) |
+| `Number` | `MagicHash` (`Double#` in an unboxed sum) | the unboxed sum is what keeps a read real from being allocated; no memory access. Right as it is |
 | `Number.Lemire` | `unsafeAt` (the power-of-ten table, its index range-checked just before), `unsafeShift*`, `timesWord2#` | arithmetic and a constant table, not a buffer: nothing of linbuf's. Right as it is |
 | `Tag.Double` | `Ptr` writer, `unsafeAt`, `unsafeShift*`, `boundedPrim` | the shortest-real printer: left alone by AGENTS.md (not covered by linbuf) |
 | `Tag.Prim`, `Entity.FastOut`, `Entity.Common` | `Ptr Word8` writers, `boundedPrim`, `unsafeUseAsCString` | the Builder primitives of step 4: linbuf has no Builder interop -- requested (report b0b82522) |
@@ -323,5 +331,5 @@ costs").  Requested of linbuf (report b0b82522): a linbuf `Bounded` run inside a
 | `Intern` | `unsafeDupablePerformIO` | `intern` is pure over a table made for one parse (interning does not change a value). Right as it is |
 | `Parse` | `unsafePerformIO` | `try`/`evaluate` turning the parser's `DxfError` into `Either`, and the per-parse interning table. Right as it is |
 
-Moved: `Tag.Text` (the tag reader: `index64le`, `index8`, `sliceAt`), `Tag.Binary` (`index8`), `Intern` (`LinBuf.Ints`,
+Moved: `Tag.Text` (the tag reader: `index64le`, `index8`, `sliceAt`), `Tag.Binary` (`index8`), `Number` (`peek8`, `index8`), `Intern` (`LinBuf.Ints`,
 `readMasked`/`writeMasked`).

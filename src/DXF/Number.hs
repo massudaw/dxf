@@ -8,7 +8,7 @@ module DXF.Number
   ) where
 
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Unsafe as U
+import LinBuf.Index (index8, peek8)
 import Data.Bits (shiftL, (.|.))
 import Data.Ratio ((%))
 import Data.Word (Word64)
@@ -20,29 +20,32 @@ isSp c = c == 32 || c == 9 || c == 13 || c == 10
 {-# INLINE isSp #-}
 
 at :: B.ByteString -> Int -> Int
-at bs i = fromIntegral (U.unsafeIndex bs i)
+at bs i = fromIntegral (index8 bs i)
 {-# INLINE at #-}
+
+-- The scanners read with 'peek8': the byte, or -1 past the end -- which no
+-- guard below accepts (not a digit, sign, point, exponent letter or blank),
+-- so one unsigned comparison is both the loop's end and the read's check.
 
 -- | Decimal integer with optional sign and surrounding blanks.  A value
 -- written as a float ("12.0", some exporters do that) is truncated.
 readInt :: B.ByteString -> Maybe Int
 readInt bs = start 0
   where
-    n = B.length bs
-    start !i
-      | i >= n = Nothing
-      | isSp (at bs i) = start (i + 1)
-      | at bs i == 45 = digits (i + 1) True 0 (i + 1)
-      | at bs i == 43 = digits (i + 1) False 0 (i + 1)
-      | otherwise = digits i False 0 i
+    start !i = case peek8 bs i of
+      c | c < 0 -> Nothing
+        | isSp c -> start (i + 1)
+        | c == 45 -> digits (i + 1) True 0 (i + 1)
+        | c == 43 -> digits (i + 1) False 0 (i + 1)
+        | otherwise -> digits i False 0 i
     digits !i !neg !acc !s
-      | i < n, let c = at bs i, c >= 48, c <= 57 = digits (i + 1) neg (acc * 10 + c - 48) s
+      | let c = peek8 bs i, c >= 48, c <= 57 = digits (i + 1) neg (acc * 10 + c - 48) s
       | i == s = Nothing
       | otherwise = rest i (if neg then negate acc else acc)
-    rest !i !v
-      | i >= n = Just v
-      | isSp (at bs i) = rest (i + 1) v
-      | otherwise = truncate <$> readDouble bs
+    rest !i !v = case peek8 bs i of
+      c | c < 0 -> Just v
+        | isSp c -> rest (i + 1) v
+        | otherwise -> truncate <$> readDouble bs
 
 -- | Hexadecimal (handles): upper or lower case, no prefix.
 readHex :: B.ByteString -> Maybe Int
@@ -81,59 +84,54 @@ readDoubleU bs = rdStart bs 0
 -- an argument: no closure is built per number.
 
 rdStart :: B.ByteString -> Int -> (# (# #) | Double# #)
-rdStart bs !i
-  | i >= B.length bs = (# (# #) | #)
-  | isSp (at bs i) = rdStart bs (i + 1)
-  | at bs i == 45 = rdInts bs (i + 1) 0 0 0 True i
-  | at bs i == 43 = rdInts bs (i + 1) 0 0 0 False i
-  | otherwise = rdInts bs i 0 0 0 False i
+rdStart bs !i = case peek8 bs i of
+  c | c < 0 -> (# (# #) | #)
+    | isSp c -> rdStart bs (i + 1)
+    | c == 45 -> rdInts bs (i + 1) 0 0 0 True i
+    | c == 43 -> rdInts bs (i + 1) 0 0 0 False i
+    | otherwise -> rdInts bs i 0 0 0 False i
 
 -- integer part; m = mantissa, nd = significant digits kept, any_ = digits seen
 rdInts :: B.ByteString -> Int -> Int -> Int -> Int -> Bool -> Int -> (# (# #) | Double# #)
 rdInts bs !j !m !nd !any_ !neg !s0
-  | j < n, let c = at bs j, c >= 48, c <= 57 =
+  | c >= 48, c <= 57 =
       if nd >= 18 then rdSlow bs neg s0
       else let nd' = if m == 0 && c == 48 then nd else nd + 1
            in rdInts bs (j + 1) (m * 10 + fromIntegral (c - 48)) nd' (any_ + 1) neg s0
-  | j < n, at bs j == 46 = rdFrac bs (j + 1) m nd any_ 0 neg s0
+  | c == 46 = rdFrac bs (j + 1) m nd any_ 0 neg s0
   | otherwise = rdExpo bs j m any_ 0 neg
-  where n = B.length bs
+  where c = peek8 bs j
 
 rdFrac :: B.ByteString -> Int -> Int -> Int -> Int -> Int -> Bool -> Int -> (# (# #) | Double# #)
 rdFrac bs !j !m !nd !any_ !fd !neg !s0
-  | j < n, let c = at bs j, c >= 48, c <= 57 =
+  | let c = peek8 bs j, c >= 48, c <= 57 =
       if nd >= 18 then rdSlow bs neg s0
       else let nd' = if m == 0 && c == 48 then nd else nd + 1
            in rdFrac bs (j + 1) (m * 10 + fromIntegral (c - 48)) nd' (any_ + 1) (fd + 1) neg s0
   | otherwise = rdExpo bs j m any_ fd neg
-  where n = B.length bs
 
 rdExpo :: B.ByteString -> Int -> Int -> Int -> Int -> Bool -> (# (# #) | Double# #)
 rdExpo bs !j !m !any_ !fd !neg
   | any_ == 0 = (# (# #) | #)
-  | j < n, let c = at bs j, c == 101 || c == 69 || c == 100 || c == 68 =
-      if j + 1 >= n then (# (# #) | #) else
-      let c1 = at bs (j + 1)
+  | let c = peek8 bs j, c == 101 || c == 69 || c == 100 || c == 68 =
+      let c1 = peek8 bs (j + 1)   -- -1 past the end: no digits follow, so no number
       in if c1 == 45 then rdExpDigits bs (j + 2) 0 0 True m fd neg
          else if c1 == 43 then rdExpDigits bs (j + 2) 0 0 False m fd neg
          else rdExpDigits bs (j + 1) 0 0 False m fd neg
   | otherwise = rdFin bs j m (negate fd) neg
-  where n = B.length bs
 
 rdExpDigits :: B.ByteString -> Int -> Int -> Int -> Bool -> Int -> Int -> Bool -> (# (# #) | Double# #)
 rdExpDigits bs !k !e !cnt !eneg !m !fd !neg
-  | k < n, let c = at bs k, c >= 48, c <= 57 = rdExpDigits bs (k + 1) (min 100000 (e * 10 + c - 48)) (cnt + 1) eneg m fd neg
+  | let c = peek8 bs k, c >= 48, c <= 57 = rdExpDigits bs (k + 1) (min 100000 (e * 10 + c - 48)) (cnt + 1) eneg m fd neg
   | cnt == 0 = (# (# #) | #)
   | otherwise = rdFin bs k m ((if eneg then negate e else e) - fd) neg
-  where n = B.length bs
 
 rdFin :: B.ByteString -> Int -> Int -> Int -> Bool -> (# (# #) | Double# #)
 rdFin bs !j !m !e !neg
   | not (blanks j) = (# (# #) | #)
   | otherwise = case (if neg then negate (build m e) else build m e) of D# d -> (# | d #)
   where
-    n = B.length bs
-    blanks !i = i >= n || (isSp (at bs i) && blanks (i + 1))
+    blanks !i = let c = peek8 bs i in c < 0 || (isSp c && blanks (i + 1))
 
 -- the mantissa has at most 18 digits, so it is a positive 'Int'
 build :: Int -> Int -> Double

@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BangPatterns, DataKinds, TypeApplications #-}
 -- | Whole text tags (code line, value line) written by one primitive each,
 -- straight into the output buffer.  A 'Builder' pays for every piece it is
 -- made of (code, line end, value, line end), so a file of a million tags
@@ -14,11 +14,9 @@ module DXF.Tag.Prim
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Builder as BB
-import qualified Data.ByteString.Unsafe as U
 import Data.ByteString.Builder.Prim (primBounded)
 import Data.ByteString.Builder.Prim.Internal (BoundedPrim, FixedPrim, boundedPrim, runB, runF)
 import Data.Word
-import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr
 import qualified LinBuf.Fixed as F
 import LinBuf.Builder (asBoundedPrim, asFixedPrim)
@@ -58,6 +56,11 @@ eolW crlf
 putInt :: Int -> Ptr Word8 -> IO (Ptr Word8)
 putInt = runB intP
 {-# INLINE putInt #-}
+
+-- | A short string's bytes ('shortBytes': at most 64), one copy.
+bytesP :: BoundedPrim B.ByteString
+bytesP = asBoundedPrim (F.bytesUpTo @64)
+{-# INLINE bytesP #-}
 
 -- | The group code line: the code, padded to three columns if the file
 -- is, and its line end.
@@ -99,9 +102,8 @@ putIntTag pad crlf c i p0 = do
 putBytesTag :: Bool -> Bool -> Int -> B.ByteString -> Ptr Word8 -> IO (Ptr Word8)
 putBytesTag pad crlf c v p0 = do
   p1 <- codeLine pad crlf c p0
-  let n = B.length v
-  U.unsafeUseAsCString v (\src -> copyBytes p1 (castPtr src) n)
-  eolW crlf (p1 `plusPtr` n)
+  p2 <- runB bytesP v p1
+  eolW crlf p2
 
 -- | A tag whose value is a double.
 doubleTag :: Bool -> Bool -> Int -> Double -> BB.Builder -> BB.Builder

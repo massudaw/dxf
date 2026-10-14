@@ -323,8 +323,21 @@ Against HEAD on the same linbuf (5-7 runs, load 11-16): f001 printloop 28.16 G i
 872; write 100k R2010 5.36 / 5.38, R12 4.90 / 4.89; CPQ-0005 8.09 / 8.16.  CPU swung -16 % to +30 % between
 reruns of the same pair.  SAME bytes on every output (f001, CPQ, both writes); the whole check passes.
 
-Not moved: a short string's copy (`unsafeUseAsCString` + `copyBytes`; linbuf has no `Bounded` copying
-up to n bytes of a `ByteString`) and, at this step, the reals (below).
+Not moved at this step: a short string's copy (linbuf then had no `Bounded` copying up to n bytes of a
+`ByteString`) and the reals (below).
+
+The short string's copy, after linbuf 25c7637 (`bytesUpTo`, answering 29e3f67f): `putBytesTag` runs
+`asBoundedPrim (bytesUpTo @64)`, so the last `unsafeUseAsCString` + `copyBytes` in `Tag.Prim` is gone.
+A/B against HEAD (d378070), the least CPU of 5-7 runs, load about 10:
+
+| program | G instr ours / HEAD | CPU | bytes |
+|---|---|---|---|
+| f001 printloop | 24.78 / 25.45 (0.97x) | 0.96x | -- |
+| f001 round 3 | 7.81 / 7.89 (0.99x) | 0.81x | SAME |
+| write 100k R2010 | 5.27 / 5.30 (0.99x) | 1.12x (noise: instructions 0.99x) | SAME |
+| CPQ-0005 round 60 | 8.05 / 8.04 (1.00x) | 0.99x | SAME |
+
+The whole check passes (43 of 43).
 
 ### The reals on `LinBuf.Real.shortestDigits` (the user's decision, 2026-10-14)
 
@@ -371,7 +384,7 @@ Allocation and peak unchanged (f001 round 3: 807 MB, 118 MB).
 | `Number` | `MagicHash` (`Double#` in an unboxed sum) | the unboxed sum is what keeps a read real from being allocated; no memory access. Right as it is |
 | `Number.Lemire` | `unsafeAt` (the power-of-ten table, its index range-checked just before), `unsafeShift*`, `timesWord2#` | arithmetic and a constant table, not a buffer: nothing of linbuf's. Right as it is |
 | `Tag.Double` | `runB` (to run the layout at a `Ptr` inside `Tag.Prim`'s tag writer), `condB` | the reals are linbuf's `shortestDigits` laid out in linbuf `Bounded`s; bytestring's `condB` chooses the layout, linbuf having no choice between `Bounded`s (requested, 29e3f67f) |
-| `Tag.Prim`, `Entity.FastOut`, `Entity.Common` | `Ptr Word8` positions (`plusPtr`), `boundedPrim`, `unsafeUseAsCString` + `copyBytes` | the stores are linbuf's (step 4); what stays is the layout between them -- a tag's shape is chosen at run time and a `Bounded`'s size is in its type -- and a short string's copy: linbuf has no `Bounded` copying a `ByteString` of at most n bytes (requested) |
+| `Tag.Prim`, `Entity.FastOut`, `Entity.Common` | `Ptr Word8` positions (`plusPtr`), `boundedPrim` | the stores are linbuf's (step 4), the short string's copy too (`bytesUpTo`, linbuf 25c7637); what stays is the layout between them -- a tag's shape is chosen at run time and a `Bounded`'s size is in its type |
 | `Entity.Fast` (`afterType`) | `unsafeForeignPtrToPtr`, `minusPtr` | the offset of a tag's value inside the input, from the two addresses; nothing is read through them, and the offset is verified (`slice bs off e == ty`, bounds checked) before use. linbuf has no "offset of a slice in its parent"; right as it is |
 | `Entity.FastKit` | `MagicHash` (`D#`) | builds a `Double` from the number reader's unboxed result; no memory access. Right as it is |
 | `Intern` | `unsafeDupablePerformIO` | `intern` is pure over a table made for one parse (interning does not change a value). Right as it is |

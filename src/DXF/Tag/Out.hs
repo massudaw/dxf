@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 -- | Writing tags.  An 'Out' is a piece of output that knows how to write
 -- itself in the layout it is given (text with LF or CR LF, padded group
 -- codes or not, binary, R12 or later), so entities are described once.
@@ -75,16 +76,16 @@ tTags ts f = foldMap (\t -> tRaw t f) ts
 
 -- | x, y, z at group codes c, c+10, c+20.
 tV3 :: Int -> V3 -> Out
-tV3 c (V3 x y z) f = tD c x f <> tD (c + 10) y f <> tD (c + 20) z f
+tV3 !c (V3 x y z) f = let !c1 = c + 10; !c2 = c + 20 in tD c x f <> tD c1 y f <> tD c2 z f
 {-# INLINE tV3 #-}
 
 -- | x and y only.
 tV2 :: Int -> V2 -> Out
-tV2 c (V2 x y) = tD c x <> tD (c + 10) y
+tV2 !c (V2 x y) = let !c1 = c + 10 in tD c x <> tD c1 y
 
 -- | A 3D point whose z is left out when it is 0 (R12 style 2D data).
 tV3z :: Int -> V3 -> Out
-tV3z c (V3 x y z) = tD c x <> tD (c + 10) y <> (if z == 0 then mempty else tD (c + 20) z)
+tV3z !c (V3 x y z) = let !c1 = c + 10; !c2 = c + 20 in tD c x <> tD c1 y <> (if z == 0 then mempty else tD c2 z)
 
 tMaybeS :: Int -> Maybe B.ByteString -> Out
 tMaybeS c m f = case m of Nothing -> mempty; Just s -> tS c s f

@@ -20,3 +20,4 @@ __pycache__/
 *.prof
 *.hp
 *.eventlog
+dist-lint/

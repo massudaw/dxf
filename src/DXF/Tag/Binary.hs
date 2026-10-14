@@ -51,25 +51,27 @@ scanBinary bs = (Fmt True False False r12, go 22)
     go !i
       | i >= n = []
       | otherwise =
-          let (c, j) | r12 = if u i == 255 then (u (i + 1) .|. (u (i + 2) `shiftL` 8), i + 3) else (u i, i + 1)
-                     | otherwise = need i 2 `seq` (u i .|. (u (i + 1) `shiftL` 8), i + 2)
-          in value c j
-    value c j = case kindOf c of
+          if r12
+            then if u i == 255 then value (u (i + 1) .|. (u (i + 2) `shiftL` 8)) (i + 3) else value (u i) (i + 1)
+            else need i 2 `seq` value (u i .|. (u (i + 1) `shiftL` 8)) (i + 2)
+    -- Each tag is made (its bytes read) before it is consed: the list is lazy, its tags are not.
+    value !c !j = case kindOf c of
       KBin -> need j 1 `seq`
-        let len = u j in need (j + 1) len `seq`
-           Tag c (hex (B.take len (B.drop (j + 1) bs))) : go (j + 1 + len)
-      KInt16 -> need j 2 `seq` Tag c (dec (fromIntegral (fromIntegral (le j 2) :: Int16))) : go (j + 2)
-      KInt32 -> need j 4 `seq` Tag c (dec (fromIntegral (fromIntegral (le j 4) :: Int32))) : go (j + 4)
-      KInt64 -> need j 8 `seq` Tag c (dec (fromIntegral (fromIntegral (le j 8) :: Int64))) : go (j + 8)
-      KBool -> need j 1 `seq` Tag c (dec (u j)) : go (j + 1)
-      KDouble -> need j 8 `seq` Tag c (strict (BB.doubleDec (castWord64ToDouble (fromIntegral (le j 8))))) : go (j + 8)
+        let !len = u j in need (j + 1) len `seq`
+           emit (Tag c (hex (B.take len (B.drop (j + 1) bs)))) (j + 1 + len)
+      KInt16 -> need j 2 `seq` emit (Tag c (dec (fromIntegral (fromIntegral (le j 2) :: Int16)))) (j + 2)
+      KInt32 -> need j 4 `seq` emit (Tag c (dec (fromIntegral (fromIntegral (le j 4) :: Int32)))) (j + 4)
+      KInt64 -> need j 8 `seq` emit (Tag c (dec (fromIntegral (fromIntegral (le j 8) :: Int64)))) (j + 8)
+      KBool -> need j 1 `seq` emit (Tag c (dec (u j))) (j + 1)
+      KDouble -> need j 8 `seq` emit (Tag c (strict (BB.doubleDec (castWord64ToDouble (le j 8))))) (j + 8)
       KStr -> case B.elemIndex 0 (B.drop j bs) of
         Nothing -> throw (DxfError j "binary DXF: unterminated string")
-        Just k -> Tag c (B.copy (B.take k (B.drop j bs))) : go (j + k + 1)
+        Just k -> emit (Tag c (B.copy (B.take k (B.drop j bs)))) (j + k + 1)
+    emit !t !k = t : go k
     le :: Int -> Int -> Word64
     le j k = foldr (\d a -> a `shiftL` 8 .|. fromIntegral (u (j + d))) 0 [0 .. k - 1]
     dec :: Int -> B.ByteString
-    dec = strict . BB.intDec
+    dec !i = strict (BB.intDec i)
 
 hex :: B.ByteString -> B.ByteString
 hex = strict . B.foldr (\w b -> hexDigit (w `shiftR` 4) <> hexDigit (w .&. 15) <> b) mempty
@@ -89,9 +91,9 @@ unhex s = fst (B.unfoldrN (B.length s `div` 2) step 0)
 binaryTag :: Bool -> Tag -> BB.Builder
 binaryTag r12 (Tag c v) = case kindOf c of
   KBin -> chunks (unhex v)
-  KDouble -> binD r12 c (maybe 0 id (readDouble v))
+  KDouble -> let !d = maybe 0 id (readDouble v) in binD r12 c d
   KStr -> binS r12 c v
-  _ -> binI r12 c (maybe 0 id (readInt v))
+  _ -> let !i = maybe 0 id (readInt v) in binI r12 c i
   where
     chunks d | B.null d = mempty
              | otherwise = let (a, b) = B.splitAt 127 d
@@ -99,20 +101,21 @@ binaryTag r12 (Tag c v) = case kindOf c of
 
 -- | A group code.
 binCode :: Bool -> Int -> BB.Builder
-binCode r12 k
-  | r12 = if k >= 255 then BB.word8 255 <> BB.word16LE (fromIntegral k) else BB.word8 (fromIntegral k)
-  | otherwise = BB.word16LE (fromIntegral k)
+binCode r12 !k
+  | r12 = if k >= 255 then BB.word8 255 <> BB.word16LE w else BB.word8 (fromIntegral k)
+  | otherwise = BB.word16LE w
+  where !w = fromIntegral k
 
 binD :: Bool -> Int -> Double -> BB.Builder
-binD r12 c d = binCode r12 c <> BB.doubleLE d
+binD r12 c !d = binCode r12 c <> BB.doubleLE d
 
 -- | An integer, of the width the group code has.
 binI :: Bool -> Int -> Int -> BB.Builder
-binI r12 c v = binCode r12 c <> case kindOf c of
-  KInt16 -> BB.int16LE (fromIntegral v)
-  KInt32 -> BB.int32LE (fromIntegral v)
-  KInt64 -> BB.int64LE (fromIntegral v)
-  _ -> BB.word8 (fromIntegral v)
+binI r12 !c !v = binCode r12 c <> case kindOf c of
+  KInt16 -> let !x = fromIntegral v in BB.int16LE x
+  KInt32 -> let !x = fromIntegral v in BB.int32LE x
+  KInt64 -> let !x = fromIntegral v in BB.int64LE x
+  _ -> let !x = fromIntegral v in BB.word8 x
 
 binS :: Bool -> Int -> B.ByteString -> BB.Builder
 binS r12 c s = binCode r12 c <> BB.byteString s <> BB.word8 0

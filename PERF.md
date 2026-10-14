@@ -573,3 +573,36 @@ sample, fixture and f001 (text and binary) in `adopt-base/summary/`.
 
 The test driver takes `full` / `routine` / `with TEXT` now (portkit's `bench/port/common/Main.hs`), so the whole
 check is a program that can be timed.
+
+### 1. linbuf-lint (report 034a407c; linbuf 3c5d699, its `tools/lint.sh`)
+
+The lint on 59cf61f: 1 error, 29 warnings.  The error: `Tag.Binary.scanBinary` consed each tag LAZILY, so each
+binary tag's bytes (`index8` reads, its clamped positions) were read inside a thunk.  Now each tag is made
+before it is consed (`emit !t k = t : go k`; the list stays lazy, its tags are not; `dec` strict in its Int),
+and the binary writer's values are bound strictly (`binCode`, `binI`, `binD`, `binaryTag`'s read values), as
+are `Tag.Out.tV2`/`tV3`/`tV3z`'s codes.  The lint after: **0 errors, 24 warnings**.
+
+Against 59cf61f's binaries (the lint's own build of them), least CPU of 5, load 15-17 (CPU moves; the
+instructions are the figure); every output the same:
+
+| program | G instr | ratio | alloc MB | peak MB |
+|---|---|---|---|---|
+| `dxf-bench f001.bin round 3` | 39.58 / 40.09 | 0.99 | 21,634 / 21,990 (-1.6%) | 242 / 243 |
+| `dxf-bench f001 round 3` | 7.79 / 7.79 | 1.00 | 701 / 701 | 119 / 119 |
+| `dxf-bench CPQ-0005 round 60` | 8.11 / 8.09 (with the `padB` change below) | 1.00 | 877 / 878 | 29 / 29 |
+| `dxf-bench condo A-301 round 60` | 7.99 / 7.97 | 1.00 | 813 / 813 | 26 / 26 |
+| `dxf-write-bench 100000 R2010` | 5.49 / 5.48 | 1.00 | 995 / 995 | 234 / 234 |
+
+`dxf-summary` of every sample, fixture and f001 (text and binary): the same as `adopt-base/summary`; check 43/43.
+
+Not taken: `Tag.Prim.padB` with its two Bools bound strictly (`let !one`, `!two`, the fix the report proposes
+for `intTagB`): +16 MB allocated per 100,000 lines written (995 -> 1,011 MB, +1.6%; CPQ round 60 878 -> 894),
+the instructions level -- the warning is on the out-of-line copy of an INLINE maker; inlined, the Bools are of
+constant codes and fold.  Left as warnings: `intTagB`/`bytesTagB` (that), `Tag.Binary.binI`/`binaryTag` and
+`Tag.Out.tRaw`/`tV3z` (bytestring's Builders, not linbuf stores: a closure per tag, by design of the fallback),
+the entity codecs' `Codec` tables (Settings, Hatch, Text, Classes, Entity, Print: one a section or a table
+row), `Json`, `Bench.main`; the 7 big stores of `Entity.FastOut`/`FastKit`/`Fast` (an entity's size).
+
+Found on the way: the binary reader allocates 570 bytes per input byte (21.6 GB for three rounds of 12.9 MB;
+the text reader 13): each value is printed to text through a Builder made strict (`BB.intDec`/`doubleDec`,
+`BL.toStrict`) and each string copied.  Not this request's; next for the binary format.

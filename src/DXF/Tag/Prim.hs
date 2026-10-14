@@ -9,15 +9,13 @@
 -- decimal (huge, tiny or non-finite doubles, long strings).
 module DXF.Tag.Prim
   ( doubleTag, intTag, bytesTag
-  , putDoubleTag, putIntTag, putBytesTag, plainDouble, shortBytes
+  , doubleTagB, intTagB, bytesTagB, optDoubleB, optIntB, optBytesB
+  , plainDouble, shortBytes
   ) where
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Builder as BB
 import Data.ByteString.Builder.Prim (primBounded)
-import Data.ByteString.Builder.Prim.Internal (runB)
-import Data.Word
-import Foreign.Ptr (Ptr)
 import LinBuf.Fixed (Sized (..))
 import qualified LinBuf.Fixed as F
 import LinBuf.Builder (asBoundedPrim)
@@ -68,21 +66,20 @@ shortBytes :: B.ByteString -> Bool
 shortBytes s = B.length s <= 64
 {-# INLINE shortBytes #-}
 
--- | The writers behind the three tag builders, for callers that write several tags in one primitive.  A
--- double must satisfy 'plainDouble', bytes 'shortBytes'.  What one writes, for a code of at most four
--- digits (DXF's are): a double at most 50 bytes, bytes 72, an int 28 -- within the 96, 80 and 48 the
--- callers reserve.
-putDoubleTag :: Bool -> Bool -> Int -> Double -> Ptr Word8 -> IO (Ptr Word8)
-putDoubleTag pad crlf c x p = runB (asBoundedPrim (doubleTagB pad crlf c)) x p
-{-# NOINLINE putDoubleTag #-}
+-- | An optional tag, written when the value is there: what several tags in one 'F.Bounded' (an entity)
+-- are made of.  A double must satisfy 'plainDouble', bytes 'shortBytes'.  The value and whether it is
+-- there are bound strictly: the two stores of a 'F.Bounded' share them.
+optDoubleB :: Bool -> Bool -> Int -> Maybe Double -> F.Bounded 68
+optDoubleB pad crlf c = F.optional (doubleTagB pad crlf c)
+{-# INLINE optDoubleB #-}
 
-putIntTag :: Bool -> Bool -> Int -> Int -> Ptr Word8 -> IO (Ptr Word8)
-putIntTag pad crlf c i p = runB (asBoundedPrim (intTagB pad crlf c)) i p
-{-# NOINLINE putIntTag #-}
+optIntB :: Bool -> Bool -> Int -> Maybe Int -> F.Bounded 46
+optIntB pad crlf c = F.optional (intTagB pad crlf c)
+{-# INLINE optIntB #-}
 
-putBytesTag :: Bool -> Bool -> Int -> B.ByteString -> Ptr Word8 -> IO (Ptr Word8)
-putBytesTag pad crlf c v p = runB (asBoundedPrim (bytesTagB pad crlf c)) v p
-{-# NOINLINE putBytesTag #-}
+optBytesB :: Bool -> Bool -> Int -> Maybe B.ByteString -> F.Bounded 90
+optBytesB pad crlf c = F.optional (bytesTagB pad crlf c)
+{-# INLINE optBytesB #-}
 
 -- | A tag whose value is a double.
 doubleTag :: Bool -> Bool -> Int -> Double -> BB.Builder -> BB.Builder

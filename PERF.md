@@ -447,7 +447,31 @@ f001 is LINEs (the `FastOut` shapes); the small files are mostly other entities,
 now nine `choose`s evaluated at run time where the `Ptr` steps skipped an absent tag with one `maybe`:
 +6 % on the whole round, so about +15-20 % on their print.  Over 3 %: reverted, and the `Ptr` positions
 stay (the patch kept as `.ghci-session/entity-bounded.patch`, not committed).  Per AGENTS.md this is where
-the printer's move stops.
+the printer's move stopped -- until linbuf 7ab3916 (report 187d65ea).
+
+#### 4e. An entity as one `Bounded`, with `F.optional` (linbuf 7ab3916)
+
+linbuf found the +6 % was not the run-time chooses but the shape of `opt*B` (`let !j = isJust m; !v =
+fromMaybe d m in choose j ...`): GHC cased on all nine `Maybe`s at the start of `$wheadOne` and
+specialised the rest on them (44k lines of Core, 16 copies of the double store, 112 of the bytes copy).
+`LinBuf.Fixed.optional` looks at the `Maybe` inside the store.  The kept patch, applied as it was, with
+the one change `optDoubleB pad crlf c = F.optional (doubleTagB pad crlf c)` (and the same for `optIntB`,
+`optBytesB`).  Against HEAD (65607c1) built on the same linbuf (7ab3916), least CPU of 5 runs (9 for
+R2010), load 7-10:
+
+| program | G instr ours / HEAD | ratio | peak MB |
+|---|---|---|---|
+| f001 printloop | 24.61 / 26.15 | 0.94x | 83 / 83 |
+| f001 round 3 | 7.91 / 8.03 | 0.99x | 119 / 118 |
+| write 100k R2010 | 5.52 / 5.41 | 1.02x | 234 / 232 |
+| write 100k R12 | 5.04 / 5.01 | 1.01x | 214 / 213 |
+| CPQ-0005 round 60 | 8.14 / 8.09 | 1.01x | 29 / 29 |
+| condo A-301 round 60 | 8.03 / 7.97 | 1.01x | 25 / 24 |
+
+Every output the same bytes as HEAD's (cmp), the whole check passes (43).  Within 3 % everywhere, 6 %
+fewer on f001's print: moved.  `Tag.Prim` has no `runB` or `Ptr` left, `Entity.Common`'s `headWriter` is
+`headB`, and `Entity.FastOut` writes each entity as one `Bounded` run by a `NOINLINE` runner: no `Ptr`,
+`plusPtr`, `boundedPrim` or `runB` in the three modules.
 
 ### What is left
 
@@ -456,8 +480,7 @@ the printer's move stops.
 | `Tag.Text` (`codeLine`) | `unsafeShiftR` | a shift by `8 * k`, `k < 8`: never past the word; no memory read. Right as it is |
 | `Number` | `MagicHash` (`Double#` in an unboxed sum) | the unboxed sum is what keeps a read real from being allocated; no memory access. Right as it is |
 | `Number.Lemire` | `unsafeAt` (the power-of-ten table, its index range-checked just before), `unsafeShift*`, `timesWord2#` | arithmetic and a constant table, not a buffer: nothing of linbuf's. Right as it is |
-| `Tag.Prim` | `runB` and `Ptr Word8` in the types of `putDoubleTag`/`putIntTag`/`putBytesTag` | a tag is one linbuf `Bounded` (4d); `runB` hands it to `Entity.FastOut`/`Entity.Common`, which write several tags in one primitive at a `Ptr`.  linbuf has no `Ptr`-taking runner for a `Bounded` (b0b82522 (b), not done) |
-| `Entity.FastOut`, `Entity.Common` | `Ptr Word8` positions, `boundedPrim` | an entity (a LINE's head and numbers, a plain head) is one primitive of several tags.  As one `Bounded` of tags (each optional tag a `choose`) it cost +6 % instructions on the small samples (above): not moved.  What linbuf would need: a `Ptr`-taking runner for a `Bounded` (b0b82522 (b)) so these stay as they are without bytestring's `runB` |
+| `Tag.Prim`, `Entity.FastOut`, `Entity.Common` | (none since 4e) | an entity is one linbuf `Bounded` of tags, optional tags by `F.optional` (linbuf 7ab3916), run by `asBoundedPrim`: no `Ptr`, `runB` or `boundedPrim` left |
 | `Entity.Fast` (`afterType`) | `unsafeForeignPtrToPtr`, `minusPtr` | the offset of a tag's value inside the input, from the two addresses; nothing is read through them, and the offset is verified (`slice bs off e == ty`, bounds checked) before use. linbuf has no "offset of a slice in its parent"; right as it is |
 | `Entity.FastKit` | `MagicHash` (`D#`) | builds a `Double` from the number reader's unboxed result; no memory access. Right as it is |
 | `Intern` | (none since Part four) | the table is membudget's `MemBudget.Intern`: no `LinBuf.Ints`, no `unsafe*` in dxf |

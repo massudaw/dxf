@@ -1,12 +1,14 @@
-{-# LANGUAGE BangPatterns, OverloadedStrings #-}
--- | The usual entities written as one primitive each, the whole entity in
--- a single call into the output buffer: LINE, VERTEX, POLYLINE, SEQEND,
--- INSERT.  Anything unusual (application data, extended data, unplaced
--- tags, long strings, numbers outside plain decimal, binary output) is
--- left to the general writer, which says the same; the test suite compares
--- the two on every sample and fixture in every layout.
+{-# LANGUAGE BangPatterns, DataKinds, OverloadedStrings #-}
+-- | The usual entities written as one primitive each, the whole entity one linbuf 'F.Bounded' made of
+-- its tags (the optional ones 'F.choose'n), run once at the builder's address: LINE, VERTEX, POLYLINE,
+-- SEQEND, INSERT.  Anything unusual (application data, extended data, unplaced tags, long strings,
+-- numbers outside plain decimal, binary output) is left to the general writer, which says the same; the
+-- test suite compares the two on every sample and fixture in every layout.
 --
 -- The children of an entity (a POLYLINE's vertices) are not written here.
+--
+-- The runners ('lineOne' ...) are NOINLINE and take the entity itself; the makers are INLINE, down to
+-- the point ('p3B'): a maker left a function returning a 'F.Bounded' makes its choices thunks.
 module DXF.Entity.FastOut
   ( fastOut
   ) where
@@ -14,9 +16,10 @@ module DXF.Entity.FastOut
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Builder as BB
 import Data.ByteString.Builder.Prim (primBounded)
-import Data.ByteString.Builder.Prim.Internal (boundedPrim)
-import Data.Word (Word8)
-import Foreign.Ptr (Ptr)
+import Data.Maybe (fromMaybe, isJust)
+import LinBuf.Builder (asBoundedPrim)
+import LinBuf.Fixed (Sized (..))
+import qualified LinBuf.Fixed as F
 import DXF.Entity.Common
 import DXF.Entity.Geometry
 import DXF.Entity.Poly
@@ -28,26 +31,15 @@ import DXF.Vec
 -- | The entity (without its children) as one builder, or 'Nothing' when
 -- the general writer must do it.
 fastOut :: Fmt -> Entity -> Maybe BB.Builder
-fastOut f (Entity ty c b _)
+fastOut f en@(Entity ty c b _)
   | fmtBinary f || not (plainHead ty c) || not (null (cXData c)) || not (null (cExtra c)) = Nothing
   | otherwise = case b of
-      BGeo (GLine (Line a e Nothing Nothing)) | ok3 a, ok3 e -> Just (prim 1700 (lineW w ty c a e))
-      BPoly (PVertex v) | okVertex v -> Just (prim 2600 (vertexW w ty c v))
-      BPoly (PPolyline p) | okPolyline p -> Just (prim 2600 (polylineW w ty c p))
-      BPoly PSeqEnd -> Just (prim 1000 (\p -> headWriter pad crlf r12 True ty c p))
-      BPoly (PInsert i) | okInsert i -> Just (prim 2600 (insertW w ty c i))
+      BGeo (GLine (Line a e Nothing Nothing)) | ok3 a, ok3 e -> Just (lineOne f en)
+      BPoly (PVertex v) | okVertex v -> Just (vertexOne f en)
+      BPoly (PPolyline p) | okPolyline p -> Just (polylineOne f en)
+      BPoly PSeqEnd -> Just (headOne f True ty c)
+      BPoly (PInsert i) | okInsert i -> Just (insertOne f en)
       _ -> Nothing
-  where
-    pad = fmtPad f
-    crlf = fmtCRLF f
-    r12 = fmtR12 f
-    w = W pad crlf r12
-    prim n act = primBounded (boundedPrim n (\() -> act)) ()
-
-type BS = B.ByteString
-
--- | The layout.
-data W = W !Bool !Bool !Bool
 
 okD :: Maybe Double -> Bool
 okD = maybe True plainDouble
@@ -68,68 +60,103 @@ okInsert :: Insert -> Bool
 okInsert i = shortBytes (inName i) && ok3 (inInsert i)
   && all okD [inXScale i, inYScale i, inZScale i, inRotation i, inColSpace i, inRowSpace i] && okM3 (inExtrusion i)
 
-type Put = Ptr Word8 -> IO (Ptr Word8)
+-- * The runners: one primitive for the entity.
 
-pD :: W -> Int -> Double -> Put
-pD (W pad crlf _) = putDoubleTag pad crlf
-{-# INLINE pD #-}
+lineOne, vertexOne, polylineOne, insertOne :: Fmt -> Entity -> BB.Builder
+lineOne f = let !w = lay f in primBounded (asBoundedPrim (\en -> case en of
+  Entity ty c (BGeo (GLine (Line a e _ _))) _ -> lineB w ty c a e
+  _ -> F.widen none))
+{-# NOINLINE lineOne #-}
 
-pI :: W -> Int -> Int -> Put
-pI (W pad crlf _) = putIntTag pad crlf
-{-# INLINE pI #-}
+vertexOne f = let !w = lay f in primBounded (asBoundedPrim (\en -> case en of
+  Entity ty c (BPoly (PVertex v)) _ -> vertexB w ty c v
+  _ -> F.widen none))
+{-# NOINLINE vertexOne #-}
 
-pS :: W -> Int -> BS -> Put
-pS (W pad crlf _) = putBytesTag pad crlf
-{-# INLINE pS #-}
+polylineOne f = let !w = lay f in primBounded (asBoundedPrim (\en -> case en of
+  Entity ty c (BPoly (PPolyline q)) _ -> polylineB w ty c q
+  _ -> F.widen none))
+{-# NOINLINE polylineOne #-}
 
--- | An optional double / int.
-oD :: W -> Int -> Maybe Double -> Put
-oD w k m p = maybe (pure p) (\d -> pD w k d p) m
-{-# INLINE oD #-}
+insertOne f = let !w = lay f in primBounded (asBoundedPrim (\en -> case en of
+  Entity ty c (BPoly (PInsert i)) _ -> insertB w ty c i
+  _ -> F.widen none))
+{-# NOINLINE insertOne #-}
 
-oI :: W -> Int -> Maybe Int -> Put
-oI w k m p = maybe (pure p) (\d -> pI w k d p) m
-{-# INLINE oI #-}
+-- * The makers.
+
+type BS = B.ByteString
+
+-- | The layout: padded codes, CR LF, R12.
+data W = W !Bool !Bool !Bool
+
+lay :: Fmt -> W
+lay f = W (fmtPad f) (fmtCRLF f) (fmtR12 f)
+{-# INLINE lay #-}
+
+dB :: W -> Int -> Double -> F.Bounded 68
+dB (W pad crlf _) = doubleTagB pad crlf
+{-# INLINE dB #-}
+
+iB :: W -> Int -> Int -> F.Bounded 46
+iB (W pad crlf _) k i = let !v = i in intTagB pad crlf k v
+{-# INLINE iB #-}
+
+sB :: W -> Int -> BS -> F.Bounded 90
+sB (W pad crlf _) k s = let !v = s in bytesTagB pad crlf k v
+{-# INLINE sB #-}
+
+oDB :: W -> Int -> Maybe Double -> F.Bounded 68
+oDB (W pad crlf _) = optDoubleB pad crlf
+{-# INLINE oDB #-}
+
+oIB :: W -> Int -> Maybe Int -> F.Bounded 46
+oIB (W pad crlf _) = optIntB pad crlf
+{-# INLINE oIB #-}
 
 -- | A point at codes k, k+10, k+20.
-p3 :: W -> Int -> V3 -> Put
-p3 w k (V3 x y z) p0 = pD w k x p0 >>= pD w (k + 10) y >>= pD w (k + 20) z
-{-# INLINE p3 #-}
+p3B :: W -> Int -> V3 -> F.Bounded 204
+p3B w k (V3 x y z) = dB w k x <+> dB w (k + 10) y <+> dB w (k + 20) z
+{-# INLINE p3B #-}
 
-o3 :: W -> Int -> Maybe V3 -> Put
-o3 w k m p = maybe (pure p) (\v -> p3 w k v p) m
-{-# INLINE o3 #-}
+o3B :: W -> Int -> Maybe V3 -> F.Bounded 204
+o3B w k m = let !j = isJust m; !v = fromMaybe (V3 0 0 0) m in F.choose j (p3B w k v) (F.widen none)
+{-# INLINE o3B #-}
 
 -- | A subclass marker, but not in R12.
-mk :: W -> BS -> Put
-mk w@(W _ _ r12) m p = if r12 then pure p else pS w 100 m p
-{-# INLINE mk #-}
+mkB :: W -> BS -> F.Bounded 90
+mkB (W pad crlf r12) m = let !v = m in F.choose r12 (F.widen none) (bytesTagB pad crlf 100 v)
+{-# INLINE mkB #-}
 
-hd :: W -> BS -> Common -> Put
-hd (W pad crlf r12) ty c = headWriter pad crlf r12 True ty c
-{-# INLINE hd #-}
+hdB :: W -> BS -> Common -> F.Bounded 746
+hdB (W pad crlf r12) = headB pad crlf r12 True
+{-# INLINE hdB #-}
 
-lineW :: W -> BS -> Common -> V3 -> V3 -> Put
-lineW w ty c a b p0 = hd w ty c p0 >>= mk w "AcDbLine" >>= p3 w 10 a >>= p3 w 11 b
+lineB :: W -> BS -> Common -> V3 -> V3 -> F.Bounded 1244
+lineB w ty c a e = hdB w ty c <+> mkB w "AcDbLine" <+> p3B w 10 a <+> p3B w 11 e
+{-# INLINE lineB #-}
 
-vertexW :: W -> BS -> Common -> Vertex -> Put
-vertexW w ty c v p0 =
-  hd w ty c p0 >>= mk w "AcDbVertex" >>= mk w (vertexMarker (vxFlags v))
-    >>= p3 w 10 (vxLocation v) >>= oD w 40 (vxStartWidth v) >>= oD w 41 (vxEndWidth v) >>= oD w 42 (vxBulge v)
-    >>= pI w 70 (vxFlags v) >>= oD w 50 (vxTangent v)
-    >>= oI w 71 (vxIndex1 v) >>= oI w 72 (vxIndex2 v) >>= oI w 73 (vxIndex3 v) >>= oI w 74 (vxIndex4 v)
-    >>= oI w 91 (vxId v)
+vertexB :: W -> BS -> Common -> Vertex -> F.Bounded 1678
+vertexB w ty c v =
+  hdB w ty c <+> mkB w "AcDbVertex" <+> mkB w (vertexMarker (vxFlags v))
+    <+> p3B w 10 (vxLocation v) <+> oDB w 40 (vxStartWidth v) <+> oDB w 41 (vxEndWidth v) <+> oDB w 42 (vxBulge v)
+    <+> iB w 70 (vxFlags v) <+> oDB w 50 (vxTangent v)
+    <+> oIB w 71 (vxIndex1 v) <+> oIB w 72 (vxIndex2 v) <+> oIB w 73 (vxIndex3 v) <+> oIB w 74 (vxIndex4 v)
+    <+> oIB w 91 (vxId v)
+{-# INLINE vertexB #-}
 
-polylineW :: W -> BS -> Common -> Polyline -> Put
-polylineW w ty c q p0 =
-  hd w ty c p0 >>= mk w (polylineMarker (plFlags q)) >>= pI w 66 (plFollow q) >>= p3 w 10 (plElevation q)
-    >>= pI w 70 (plFlags q) >>= oD w 40 (plStartWidth q) >>= oD w 41 (plEndWidth q)
-    >>= oI w 71 (plMCount q) >>= oI w 72 (plNCount q) >>= oI w 73 (plMDensity q) >>= oI w 74 (plNDensity q)
-    >>= oI w 75 (plSmoothType q) >>= oD w 39 (plThickness q) >>= o3 w 210 (plExtrusion q)
+polylineB :: W -> BS -> Common -> Polyline -> F.Bounded 1770
+polylineB w ty c q =
+  hdB w ty c <+> mkB w (polylineMarker (plFlags q)) <+> iB w 66 (plFollow q) <+> p3B w 10 (plElevation q)
+    <+> iB w 70 (plFlags q) <+> oDB w 40 (plStartWidth q) <+> oDB w 41 (plEndWidth q)
+    <+> oIB w 71 (plMCount q) <+> oIB w 72 (plNCount q) <+> oIB w 73 (plMDensity q) <+> oIB w 74 (plNDensity q)
+    <+> oIB w 75 (plSmoothType q) <+> oDB w 39 (plThickness q) <+> o3B w 210 (plExtrusion q)
+{-# INLINE polylineB #-}
 
-insertW :: W -> BS -> Common -> Insert -> Put
-insertW w ty c i p0 =
-  hd w ty c p0 >>= mk w "AcDbBlockReference" >>= oI w 66 (inFollow i) >>= pS w 2 (inName i)
-    >>= p3 w 10 (inInsert i) >>= oD w 41 (inXScale i) >>= oD w 42 (inYScale i) >>= oD w 43 (inZScale i)
-    >>= oD w 50 (inRotation i) >>= oI w 70 (inColumns i) >>= oI w 71 (inRows i)
-    >>= oD w 44 (inColSpace i) >>= oD w 45 (inRowSpace i) >>= o3 w 210 (inExtrusion i)
+insertB :: W -> BS -> Common -> Insert -> F.Bounded 1880
+insertB w ty c i =
+  hdB w ty c <+> mkB w "AcDbBlockReference" <+> oIB w 66 (inFollow i) <+> sB w 2 (inName i)
+    <+> p3B w 10 (inInsert i) <+> oDB w 41 (inXScale i) <+> oDB w 42 (inYScale i) <+> oDB w 43 (inZScale i)
+    <+> oDB w 50 (inRotation i) <+> oIB w 70 (inColumns i) <+> oIB w 71 (inRows i)
+    <+> oDB w 44 (inColSpace i) <+> oDB w 45 (inRowSpace i) <+> o3B w 210 (inExtrusion i)
+{-# INLINE insertB #-}

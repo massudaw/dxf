@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns, OverloadedStrings, DeriveGeneric, DeriveAnyClass #-}
+{-# LANGUAGE BangPatterns, DataKinds, OverloadedStrings, DeriveGeneric, DeriveAnyClass #-}
 -- | What every entity, table entry and object has: handle, owner,
 -- application data, and (for graphical entities) layer, linetype, color
 -- and the rest of the @AcDbEntity@ subclass; extended data at the end.
@@ -9,11 +9,12 @@
 module DXF.Entity.Common
   ( Common (..), More (..), blankCommon, blankMore
   , splitTags, commonHead, commonTail, commonDump
-  , plainHead, headWriter
+  , plainHead, headB, headOne
   ) where
 
 import Control.DeepSeq (NFData)
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Builder as BB
 import GHC.Generics (Generic)
 import DXF.Json
 import DXF.Number
@@ -21,9 +22,9 @@ import DXF.Tag
 import DXF.Tag.Out
 import DXF.Tag.Prim
 import Data.ByteString.Builder.Prim (primBounded)
-import Data.ByteString.Builder.Prim.Internal (boundedPrim)
-import Data.Word (Word8)
-import Foreign.Ptr (Ptr)
+import LinBuf.Builder (asBoundedPrim)
+import LinBuf.Fixed (Sized (..))
+import qualified LinBuf.Fixed as F
 
 -- | The @AcDbEntity@ attributes that are rarely set.
 data More = More
@@ -115,7 +116,7 @@ field k v c = case k of
 commonHead :: Bool -> B.ByteString -> Common -> Out
 commonHead graphic ty c f
   | not (fmtBinary f), plainHead ty c =
-      primBounded (boundedPrim 900 (\() -> headWriter (fmtPad f) (fmtCRLF f) (fmtR12 f) graphic ty c)) ()
+      headOne f graphic ty c
   | otherwise = general
   where
     general =
@@ -141,23 +142,26 @@ plainHead ty c = null (cAppData c) && cMore c == blankMore && shortBytes ty
   && maybe True plainDouble (cLtScale c)
   where sb = maybe True shortBytes
 
--- | The head of a 'plainHead' (at most 900 bytes), written into the buffer.
-headWriter :: Bool -> Bool -> Bool -> Bool -> B.ByteString -> Common -> Ptr Word8 -> IO (Ptr Word8)
-headWriter pad crlf r12 graphic ty c p0 = do
-  p1 <- putBytesTag pad crlf 0 ty p0
-  p2 <- opt (handleCode ty) (cHandle c) p1
-  p3 <- opt 330 (cOwner c) p2
-  if not graphic then pure p3 else do
-    p4 <- if r12 then pure p3 else putBytesTag pad crlf 100 "AcDbEntity" p3
-    p5 <- optI 67 (cPaperspace c) p4
-    p6 <- opt 8 (cLayer c) p5
-    p7 <- opt 6 (cLinetype c) p6
-    p8 <- optI 62 (cColor c) p7
-    p9 <- optI 370 (cLineweight c) p8
-    maybe (pure p9) (\d -> putDoubleTag pad crlf 48 d p9) (cLtScale c)
-  where
-    opt k m p = maybe (pure p) (\s -> putBytesTag pad crlf k s p) m
-    optI k m p = maybe (pure p) (\i -> putIntTag pad crlf k i p) m
+-- | The head of a 'plainHead' as one linbuf 'F.Bounded': @0 TYPE@, handle, owner, and for a graphical
+-- entity the @AcDbEntity@ subclass (not in R12) with its usual attributes, each there or not by 'F.choose'.
+headB :: Bool -> Bool -> Bool -> Bool -> B.ByteString -> Common -> F.Bounded 746
+headB pad crlf r12 graphic ty c =
+  let !hc = handleCode ty in
+  bytesTagB pad crlf 0 ty <+> optBytesB pad crlf hc (cHandle c) <+> optBytesB pad crlf 330 (cOwner c)
+    <+> F.choose graphic
+          (F.choose r12 (F.widen none) (bytesTagB pad crlf 100 "AcDbEntity")
+            <+> optIntB pad crlf 67 (cPaperspace c) <+> optBytesB pad crlf 8 (cLayer c)
+            <+> optBytesB pad crlf 6 (cLinetype c) <+> optIntB pad crlf 62 (cColor c)
+            <+> optIntB pad crlf 370 (cLineweight c) <+> optDoubleB pad crlf 48 (cLtScale c))
+          (F.widen none)
+{-# INLINE headB #-}
+
+-- | The head of a 'plainHead', run as one primitive.
+headOne :: Fmt -> Bool -> B.ByteString -> Common -> BB.Builder
+headOne f graphic ty =
+  let !pad = fmtPad f; !crlf = fmtCRLF f; !r12 = fmtR12 f
+  in primBounded (asBoundedPrim (headB pad crlf r12 graphic ty))
+{-# NOINLINE headOne #-}
 
 -- | What nothing understood, then the extended data.
 commonTail :: Common -> Out

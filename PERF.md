@@ -232,7 +232,21 @@ R2010|R12 OUT` (build, to document, print, write).
 
 | step | commit | f001 round 3: CPU s / G instr | CPQ-0005 round 60 | condo A-301 round 60 | f001 printloop | write 100k R2010 | write 100k R12 | bytes |
 |---|---|--:|--:|--:|--:|--:|--:|---|
-| baseline | (this) | 1.17 / 8.32 | 1.06 / 7.98 | 0.71 / 7.83 | 3.67 / 29.36 | 0.92 / 5.39 | 0.82 / 4.88 | kept |
+| baseline | ed43487 | 1.17 / 8.32 | 1.06 / 7.98 | 0.71 / 7.83 | 3.67 / 29.36 | 0.92 / 5.39 | 0.82 / 4.88 | kept |
+| 2. tag reader on `LinBuf.Index` | (this) | 1.23 / 8.46 (+1.7 %) | 1.22 / 7.92 (-0.8 %) | 1.20 / 7.77 (-0.8 %) | -- | -- | -- | SAME |
 
 Peak and allocation of the baseline: f001 round 179 MB / 854 MB, CPQ 28 / 1034, condo 24 / 957, printloop
 83 / 4165, write R2010 233 / 1004, R12 210 / 947.
+
+Step 2, the tag reader.  AGENTS.md (after linbuf's `docs/adopting.md`) names it `DXF.Tag.Prim`, "12
+`unsafeIndex`"; those twelve are in `DXF.Tag.Text` (`nextTag`, `scanText`) -- `DXF.Tag.Prim` is the
+writer's primitives (step 4).  `DXF.Tag.Text` now reads through `LinBuf.Index`: a group code line is read
+from ONE checked 8-byte load (`index64le`) by a state machine kept in one `Int` (a line longer than 8
+bytes, or one in the last 8 bytes of the file, byte by byte through `index8`); the value line's end is
+found by `B.elemIndex` on `B.drop` (checked).  Tried and dropped on the way: `index8` for every byte as
+the old loop read them, +3.0 % instructions on f001 (each read checked again after the loop's own `j < n`);
+and `B.take`/`B.drop` for `slice` as well, +5.5 % instructions and +2 % allocation (`B.take` may answer
+the shared `empty`, so the slice is no longer built in place).  So `slice` keeps `unsafeTake`/`unsafeDrop`:
+its offsets are those `nextTag` found in the same bytes.  linbuf has no checked slice at a position outside
+its `Parser` (reported).  CPU on the small files moves 0.7-1.2 s between identical runs on this machine;
+instructions are within 2 % on all three.

@@ -14,6 +14,8 @@ module DXF.Tag.Text
 
 import Control.Exception (throw)
 import qualified Data.ByteString as B
+import Data.Bits (shiftL, shiftR, unsafeShiftR, (.&.), (.|.))
+import LinBuf.Index (index8, index64le)
 import qualified Data.ByteString.Unsafe as U
 import DXF.Tag
 
@@ -25,9 +27,9 @@ scanText bs = (fmt, scanFrom bs 0)
     n = B.length bs
     fmt = Fmt { fmtBinary = False
               , fmtCRLF = case B.elemIndex 10 bs of
-                            Just k | k > 0 -> U.unsafeIndex bs (k - 1) == 13
+                            Just k | k > 0 -> index8 bs (k - 1) == 13
                             _ -> False
-              , fmtPad = n > 0 && U.unsafeIndex bs 0 == 32
+              , fmtPad = n > 0 && index8 bs 0 == 32
               , fmtR12 = False }
 
 -- | One tag read at an offset: its code (or one of the three codes
@@ -59,32 +61,61 @@ nextTag bs i
         | otherwise ->
             let s2 = e1 + 1
                 e2 = lineEnd s2
-                ve = if e2 > s2 && U.unsafeIndex bs (e2 - 1) == 13 then e2 - 1 else e2
+                ve = if e2 > s2 && index8 bs (e2 - 1) == 13 then e2 - 1 else e2
             in T c s2 ve (e2 + 1)
   where
     n = B.length bs
-    lineEnd !j = case B.elemIndex 10 (U.unsafeDrop j bs) of
+    lineEnd !j = case B.elemIndex 10 (B.drop j bs) of
       Just k -> j + k
       Nothing -> n
-    allBlank !j = j >= n || (blank (U.unsafeIndex bs j) && allBlank (j + 1))
+    allBlank !j = j >= n || (blank (index8 bs j) && allBlank (j + 1))
     blank c = c == 32 || c == 9 || c == 10 || c == 13
-    -- group code line: blanks, optional sign, digits, blanks, newline
-    codeLine !a = skip a
+    -- group code line: blanks, optional sign, digits, blanks, newline.  Eight
+    -- bytes are loaded at once (one check) and the line read from them; a
+    -- longer line, or one near the end, is read byte by byte.
+    codeLine !a
+      | a + 8 <= n = fast (index64le bs a) 0 0
+      | otherwise = slow a 0
       where
-        skip !j | j < n, let c = U.unsafeIndex bs j, c == 32 || c == 9 = skip (j + 1)
-                | j < n, U.unsafeIndex bs j == 45 = digits (j + 1) 0 (j + 1) True
-                | otherwise = digits j 0 j False
-        digits !j !acc !s !neg
-          | j < n, let c = U.unsafeIndex bs j, c >= 48, c <= 57 =
-              digits (j + 1) (acc * 10 + fromIntegral c - 48) s neg
-          | j == s = C badCode 0
-          | otherwise = trail j (if neg then negate acc else acc)
-        trail !j !v
-          | j >= n = C v n
-          | let c = U.unsafeIndex bs j, c == 10 = C v j
-          | let c = U.unsafeIndex bs j, c == 32 || c == 9 || c == 13 = trail (j + 1) v
-          | otherwise = C badCode 0
+        fast !w !k !s
+          | k == 8 = slow a 0
+          | c == 10 = C (finish s) (a + k)
+          | s' < 0 = C badCode 0
+          | otherwise = fast w (k + 1) s'
+          where c = fromIntegral (w `unsafeShiftR` (8 * k)) .&. 0xff :: Int
+                s' = step s c
+        slow !j !s
+          | j >= n = C (finish s) n
+          | c == 10 = C (finish s) j
+          | s' < 0 = C badCode 0
+          | otherwise = slow (j + 1) s'
+          where c = fromIntegral (index8 bs j) :: Int
+                s' = step s c
 {-# INLINE nextTag #-}
+
+-- | The state of a group code line read so far, in one Int: the phase in the
+-- low two bits (0 leading blanks, 1 after a minus, 2 digits, 3 trailing
+-- blanks), the sign in the third, the digits above; -1 when it is not a code.
+step :: Int -> Int -> Int
+step !s !c = case s .&. 3 of
+  0 | c == 32 || c == 9 -> s
+    | c == 45 -> 5
+    | digit -> (d `shiftL` 3) .|. 2
+  1 | digit -> (d `shiftL` 3) .|. 6
+  2 | digit -> (((s `shiftR` 3) * 10 + d) `shiftL` 3) .|. (s .&. 7)
+    | c == 32 || c == 9 || c == 13 -> s .|. 3
+  3 | c == 32 || c == 9 || c == 13 -> s
+  _ -> -1
+  where d = c - 48
+        digit = c >= 48 && c <= 57
+{-# INLINE step #-}
+
+finish :: Int -> Int
+finish s
+  | s < 0 || s .&. 3 < 2 = badCode
+  | s .&. 4 /= 0 = negate (s `shiftR` 3)
+  | otherwise = s `shiftR` 3
+{-# INLINE finish #-}
 
 -- | The tags from an offset on (which must be the start of a group code
 -- line), up to and including @0 EOF@.

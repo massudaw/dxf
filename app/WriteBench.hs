@@ -3,7 +3,8 @@
 --
 -- Builds a drawing of N lines (each on a layer, each with extended data: an
 -- id string, an int, a real), turns it into a document, prints it, and says
--- the time of each stage and the size.  With FILE it writes the bytes there.
+-- the time of each stage and the size.  With FILE it prints them there as they
+-- are made (hPutDocument: linbuf's sink), the two one stage.
 module Main (main) where
 
 import Control.Exception (evaluate)
@@ -11,6 +12,7 @@ import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
 import GHC.Clock (getMonotonicTime)
 import System.Environment (getArgs)
+import System.IO (IOMode (WriteMode), withBinaryFile)
 import DXF
 import DXF.Build
 
@@ -39,8 +41,7 @@ main = do
       d = drawing ver n
   _ <- timed "build drawing" (evaluate (length (drawingProblems d)))
   doc <- timed "to document" (evaluate (let x = toDocument d in length (docEntities x) `seq` x))
-  bytes <- timed "print" (let b = BL.toStrict (documentBytes doc) in evaluate (BL.length (BL.fromStrict b)) >> return b)
-  putStrLn ("size: " ++ show (BL.length (BL.fromStrict bytes)) ++ " bytes, " ++ show n ++ " lines")
-  case file of
-    [f] -> timed "write file" (BL.writeFile f (BL.fromStrict bytes))
-    _ -> return ()
+  size <- case file of
+    [f] -> timed "print and write file" (withBinaryFile f WriteMode (\h -> hPutDocument h doc))
+    _ -> timed "print" (evaluate (fromIntegral (BL.length (documentBytes doc))))
+  putStrLn ("size: " ++ show size ++ " bytes, " ++ show n ++ " lines")

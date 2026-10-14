@@ -95,7 +95,7 @@ body = do
       mapM_ (const once) [2 .. n]
       d <- once
       mapM_ (\i -> evaluate (BL.length (documentBytes d) + fromIntegral i)) [2 .. n]
-      BL.writeFile out (documentBytes d)
+      writeDocument out d
     ["parseonly"] -> do
       _ <- timed "parse document" (evaluate (parseDXF bs) >>= either (ioError . userError . show) pure)
       pure ()

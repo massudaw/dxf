@@ -625,3 +625,25 @@ the CPU); load 45-65 for all four runs, so the CPU of a cold run is level within
 
 Warm (every later run, until compare.py, its extensions, ezdxf or a drawing's summary changes): CPU 97 -> 30 s;
 the test process's own instructions level (-0.3..-0.7%), peak lower (450 -> 418 MB).  Taken.
+
+### 3. Writing through linbuf's sink (report 52eee175; linstream 92ac77d, linbuf 3c5d699)
+
+`DXF.Print.hPutDocument h d` runs the document's Builder straight in a 256 KB linbuf sink flushed to the handle
+(`withSink`/`builder`/`closeSink`, as ifc's `IFC.Dump.put`); `writeDocument` (and so `Build.writeDrawing`,
+`dxf-bench ... round`) goes through it.  `dxf-write-bench N V FILE` prints and writes in one stage now: no
+strict copy of the printed file (`BL.toStrict`) is held.
+
+Against 59cf61f's binaries, least CPU (load 20-45); the same bytes in every output:
+
+| program | G instr | CPU s | peak MB | alloc MB |
+|---|---|---|---|---|
+| `dxf-write-bench 1000000 R2010` (179 MB) | 52.96 / 52.81 (1.00) | 10.57 / 11.24 | 2,017 / 2,036 (-19) | 9,666 / 10,013 (-3.5%) |
+| `dxf-write-bench 100000 R2010` | 5.51 / 5.50 (1.00) | 1.01 / 1.00 | 229 / 234 (-5) | 961 / 995 (-3.4%) |
+| `dxf-bench f001 round 3` | 7.85 / 7.88 (1.00) | 1.22 / 1.24 | 119 / 119 | 681 / 701 (-2.9%) |
+
+The peak is lower, but by 1%, not by the printed size: `+RTS -s` of the 1,000,000-line run says the largest
+live heap is the drawing and its document together (783 -> 777 MB maximum residency; 2 GB with the copying
+collector), reached while the document is made -- before anything is printed.  By the print the drawing is
+dead, and the 179 MB copy and its chunks fitted under that peak.  What the sink gives is that a document is
+written in constant room beyond itself (256 KB), whatever its size, and 3% less allocation.  Taken; the
+estimate of -358 MB does not hold here (reported to linstream with the figures).

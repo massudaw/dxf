@@ -15,8 +15,7 @@ module DXF.Tag.Text
 import Control.Exception (throw)
 import qualified Data.ByteString as B
 import Data.Bits (shiftL, shiftR, unsafeShiftR, (.&.), (.|.))
-import LinBuf.Index (index8, index64le)
-import qualified Data.ByteString.Unsafe as U
+import LinBuf.Index (index8, index64le, sliceAt)
 import DXF.Tag
 
 -- | The layout of the file (from its first tag) and its tags, up to and
@@ -45,7 +44,7 @@ noValue = minBound + 2
 
 -- | The bytes of a value.
 slice :: B.ByteString -> Int -> Int -> B.ByteString
-slice bs s e = U.unsafeTake (e - s) (U.unsafeDrop s bs)
+slice bs s e = sliceAt bs s (e - s)
 {-# INLINE slice #-}
 
 -- | A group code line: the code (or 'badCode') and where the line ends.
@@ -125,7 +124,7 @@ scanFrom bs = go
     go !i = case nextTag bs i of
       T c s e nx
         | c > endCode + 2 ->
-            let v = slice bs s e
+            let !v = slice bs s e     -- built now: a checked slice is no thunk
             in Tag c v : (if c == 0 && v == eof then [] else go nx)
         | c == endCode -> []
         | c == badCode -> throw (DxfError (lineOf i) "invalid group code")

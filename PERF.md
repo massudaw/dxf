@@ -281,6 +281,19 @@ Tried and NOT moved: the number reader (`DXF.Number`, its `at` is `unsafeIndex`)
 instructions, +2.7 % for this change alone and +4.6 % against the baseline (CPQ +3.0 %) -- every digit of
 every real is read through it, and each read is checked again after the loop's own `j < n`.  Reverted.
 
+### After linbuf 208aafd: `sliceAt`, `index8` without `runRW#`
+
+linbuf answered 06d57ff7 with `LinBuf.Index.sliceAt b i n` (two unsigned compares, the failure out of
+line, always a `BS` over the same `ForeignPtr`), and `index8` no longer runs `runRW#` per read.  Each
+retry is held against HEAD built on the SAME new linbuf (`bench` with `against`, 5 runs; load average
+20-25, so instructions are the figure), and its output against the baseline's bytes.
+
+`Tag.Text.slice` on `sliceAt`: first as a drop-in, f001 +5 % instructions, +2 % allocation -- the failure
+branch makes the slice no longer cheap enough to build speculatively, so the value of every `Tag` became
+a thunk.  Forced where the tag is built (`let !v = slice ...`): f001 8.31 G against 8.50 G (0.98x), CPU
+equal, PEAK 118 MB against 179 MB (no thunk per tag held); CPQ-0005 1.00x instructions.  SAME bytes,
+the whole check passes.  `Tag.Text` has no `unsafe` read or slice left.
+
 ### Step 4: the printer -- not done, WAITING on linbuf
 
 The printer's primitives (`DXF.Tag.Prim`, `DXF.Entity.FastOut`, `DXF.Entity.Common.headWriter`) are
@@ -300,7 +313,6 @@ costs").  Requested of linbuf (report b0b82522): a linbuf `Bounded` run inside a
 
 | module | what | why it stays |
 |---|---|---|
-| `Tag.Text` (`slice`) | `unsafeTake`, `unsafeDrop` | `B.take`/`B.drop` cost +5.5 % instructions, +2 % allocation; linbuf has no checked slice at a position outside its `Parser` -- requested (report 06d57ff7). The offsets are those `nextTag` found in the same bytes |
 | `Tag.Text` (`codeLine`) | `unsafeShiftR` | a shift by `8 * k`, `k < 8`: never past the word; no memory read. Right as it is |
 | `Number` | `unsafeIndex` (`at`), `MagicHash` (`Double#` in an unboxed sum) | `index8` costs +2.7 % (above); the unboxed sum is what keeps a read real from being allocated (no memory access). Would need from linbuf a read of a span checked ONCE with an early exit (a digit loop stops at the first non-digit; `foldFixed` cannot stop) |
 | `Number.Lemire` | `unsafeAt` (the power-of-ten table, its index range-checked just before), `unsafeShift*`, `timesWord2#` | arithmetic and a constant table, not a buffer: nothing of linbuf's. Right as it is |
@@ -311,5 +323,5 @@ costs").  Requested of linbuf (report b0b82522): a linbuf `Bounded` run inside a
 | `Intern` | `unsafeDupablePerformIO` | `intern` is pure over a table made for one parse (interning does not change a value). Right as it is |
 | `Parse` | `unsafePerformIO` | `try`/`evaluate` turning the parser's `DxfError` into `Either`, and the per-parse interning table. Right as it is |
 
-Moved: `Tag.Text` (the tag reader: `index64le`, `index8`), `Tag.Binary` (`index8`), `Intern` (`LinBuf.Ints`,
+Moved: `Tag.Text` (the tag reader: `index64le`, `index8`, `sliceAt`), `Tag.Binary` (`index8`), `Intern` (`LinBuf.Ints`,
 `readMasked`/`writeMasked`).

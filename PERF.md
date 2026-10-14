@@ -465,3 +465,19 @@ the printer's move stops.
 
 Moved: `Tag.Text` (the tag reader: `index64le`, `index8`, `sliceAt`), `Tag.Binary` (`index8`), `Number` (`peek8`, `index8`), `Tag.Prim` (`LinBuf.Fixed` stores through `LinBuf.Builder`), `Tag.Double` (`LinBuf.Real.shortestDigits`, `wordDec`, `wordDecPadded`), `Intern` (`LinBuf.Ints`,
 `readMasked`/`writeMasked`).
+
+## The tables on membudget (AGENTS.md, Part four)
+
+membudget's `docs/adopting.md` names one table of dxf's: `DXF.Intern` (the per-parse string interner).
+The baseline is HEAD before the move (af68394), the programs of Part three (`bench` with `exe`, baseline
+`membudget-base`, 5 runs, the run of least CPU); its outputs are kept in `.ghci-session/membudget-base/`
+(not committed).  PEAK is the maximum resident set (`time -l`), so it includes the program's code.
+
+| program | CPU s | G instr | peak MB | alloc MB |
+|---|--:|--:|--:|--:|
+| f001 round 3 | 0.88 | 7.99 | 118 | 735 |
+| CPQ-0005 round 60 | 0.91 | 8.21 | 28 | 957 |
+| condo A-301 round 60 | 0.85 | 7.93 | 24 | 886 |
+| f001 printloop | 3.02 | 26.12 | 83 | 2829 |
+| write 100k R2010 | 0.87 | 5.48 | 232 | 979 |
+| write 100k R12 | 0.67 | 4.94 | 213 | 937 |

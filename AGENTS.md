@@ -92,6 +92,27 @@ In this order, each a commit that builds and passes the whole check, pushed:
 A module that comes out slower is NOT moved: say why in `PERF.md`, report what linbuf would need, leave it.
 Say WAITING when these are done, or when a step cannot be done without a change in linbuf (reported).
 
+## Part four: the tables on membudget
+
+The user's word (2026-10-14): dxf moves its memo / intern / cache tables onto **membudget**
+(`~/code/membudget`: the user's own package -- interners, memos, bounded caches and frozen tables, each with a
+memory budget, no `unsafe*` in the caller; it depends on base, bytestring, containers and linbuf, all allowed).
+Its agent ported this project's tables as COPIES and measured them: `~/code/membudget/docs/adopting.md`,
+"## dxf" -- what to change, what it gives, how to check -- and `bench/port/` there. membudget is READ ONLY for you:
+what it lacks or does wrong is a `report` with `about: membudget`.
+
+`cabal.project` now has `../membudget` (linbuf is there already); add `membudget` to the library's
+`build-depends`.
+
+1. **The baseline**: your own (the last part's) programs and samples, outputs kept; plus the PEAK memory of each.
+2. **The move**, as adopting.md says, one table a commit: the SAME OUTPUT on every sample, time/instructions within
+   3% or better, peak equal or lower -- and BOUNDED: one run with a budget smaller than the table's natural size,
+   output still the same, memory held at the budget. Give each table a name in membudget's registry and a budget
+   that adopting.md proposes (say the figure in PERF.md).
+3. **What is left**: every `unsafePerformIO`/global table still here, each with why it stays.
+A table that comes out slower is NOT moved: PERF.md says why, and a report to membudget says what it would need.
+Commit and push each; say WAITING when done.
+
 ## What is not committed
 
 Data and compiled files stay out of the repository (`.gitignore`): no `*.dxf` -- the samples are another

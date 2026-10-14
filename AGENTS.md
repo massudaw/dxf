@@ -113,6 +113,25 @@ what it lacks or does wrong is a `report` with `about: membudget`.
 A table that comes out slower is NOT moved: PERF.md says why, and a report to membudget says what it would need.
 Commit and push each; say WAITING when done.
 
+## The libraries' adoption requests (2026-10-15)
+
+The user's word (2026-10-15): adopt what the user's libraries measured for this project. Each request below is a
+report you can read whole: `ghci-session reports show ID` (and the library's `docs/adopting.md`, section for this
+project; its port is a COPY under that library's `bench/port/`). The libraries are the user's own, READ ONLY for
+you; what one lacks or does wrong is a `report` with `about: LIBRARY`. All of them have a tagged v0.1.0; build
+against their working trees as now (`cabal.project` lists them), and say the commit you measured against.
+
+- **linbuf** (report `034a407c`): linbuf-lint found a real thunk in Tag.Binary.$wscanBinary (each tag's clamped position built lazily) and 29 stores holding a thunk: fix what the lint says, measured.
+- **portkit** (report `2f21c0f8`): move test/Check/{Util,Oracle}.hs onto portkit: ezdxf's verdicts kept on disk by drawing and ezdxf's version (warm full check 104 -> 27 s CPU).
+- **linstream** (report `52eee175`): write documents through linbuf's sink (dxf-write-bench peak 2,177 MB, about -358 MB).
+
+How, as before: a baseline first (outputs kept, the figures: instructions, CPU, peak), then ONE request a commit,
+in the order above: the SAME OUTPUT on every fixture and sample, time within 3% or better, peak equal or lower
+(a streaming move should be clearly lower: say how much). A request that comes out worse is NOT taken: PERF.md
+says why, and a report to the library says what it would need. Then mark each report: `ghci-session reports set
+ID fixed NOTE` when taken, `... dismissed NOTE` when not, with the figure. Commit and push each; say WAITING
+when done.
+
 ## What is not committed
 
 Data and compiled files stay out of the repository (`.gitignore`): no `*.dxf` -- the samples are another

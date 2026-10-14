@@ -548,3 +548,28 @@ bytes as the natural run.  `dxf-summary` (entities by type, layers, blocks) of a
 | `Number.Lemire` (`table`) | a top-level `NOINLINE` array (a CAF) | the 651 128-bit powers of ten of the Eisel-Lemire reader, computed once: a constant of fixed size (about 40 KB), not a memo or a cache -- nothing to budget, and no `unsafePerformIO`.  Right as it is |
 
 No other memo, cache or global table is in dxf: the interner was the one.
+
+## The libraries' adoption requests (AGENTS.md, 2026-10-15)
+
+Built against the working trees: linbuf 3c5d699, membudget 5894f27, portkit 9eb4313, linstream 92ac77d.
+
+### Baseline (dxf 59cf61f)
+
+`bench exe`, baseline `adopt-base`, the least CPU of 5 runs (load 4-10); every output kept in
+`.ghci-session/adopt-base/` (the five of `membudget-base` are byte-equal to these), with `dxf-summary` of every
+sample, fixture and f001 (text and binary) in `adopt-base/summary/`.
+
+| program | wall s | CPU s | peak MB | alloc MB | G instr |
+|---|---|---|---|---|---|
+| `dxf-bench f001 round 3` | 0.76 | 0.73 | 119 | 701 | 7.76 |
+| `dxf-bench CPQ-0005 round 60` | 0.76 | 0.74 | 29 | 878 | 8.06 |
+| `dxf-bench condo A-301 round 60` | 0.77 | 0.73 | 26 | 813 | 7.96 |
+| `dxf-bench f001 printloop` | 2.32 | 2.29 | 83 | 2,488 | 24.57 |
+| `dxf-bench f001.bin round 3` (binary DXF, 12.9 MB) | 3.65 | 3.62 | 242 | 21,990 | 39.95 |
+| `dxf-write-bench 100000 R2010` | 0.51 | 0.48 | 232 | 995 | 5.37 |
+| `dxf-write-bench 100000 R12` | 0.48 | 0.46 | 214 | 953 | 4.93 |
+| `dxf-write-bench 1000000 R2010` (179 MB written) | 5.62 | 5.26 | 2,029 | 10,013 | 51.65 |
+| the whole check (`dxf-test full`, 43 checks; ezdxf's processes included) | 40.3 | 79.0 | 454 | | 104.6 (the test process) |
+
+The test driver takes `full` / `routine` / `with TEXT` now (portkit's `bench/port/common/Main.hs`), so the whole
+check is a program that can be timed.

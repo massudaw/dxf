@@ -79,6 +79,14 @@ main = do
       putStrLn (path ++ ": size " ++ show sz ++ " | cold parse " ++ show (ms cp) ++ " ms " ++ show (mbs cp) ++ " MB/s, print "
                 ++ show (ms cw) ++ " ms " ++ show (mbs cw) ++ " MB/s | loop(" ++ show n ++ ") parse " ++ show (ms sp) ++ " ms "
                 ++ show (mbs sp) ++ " MB/s, print " ++ show (ms sw) ++ " ms " ++ show (mbs sw) ++ " MB/s")
+    ["round", nS, out] -> do   -- N parses (each of a fresh copy) and N prints; the last print written to OUT
+      let n = read nS :: Int
+          parseOf b = either (ioError . userError . show) pure (parseDXF b)
+          once = evaluate (B.copy bs) >>= parseOf >>= \d -> evaluate (rnf d) >> pure d
+      mapM_ (const once) [2 .. n]
+      d <- once
+      mapM_ (\i -> evaluate (BL.length (documentBytes d) + fromIntegral i)) [2 .. n]
+      BL.writeFile out (documentBytes d)
     ["parseonly"] -> do
       _ <- timed "parse document" (evaluate (parseDXF bs) >>= either (ioError . userError . show) pure)
       pure ()

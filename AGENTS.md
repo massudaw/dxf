@@ -63,6 +63,35 @@ For the routine check, use the session's `test` tool (the suite is wired to it, 
 compiled already): `cabal build` of the test executable compiles everything a second time, twenty seconds a
 run. Keep the built executables for what needs them -- the profiled runs and the numbers in PERF.md.
 
+## Part three: the low-level code on linbuf
+
+The user's word (2026-10-14): dxf moves its low-level byte and bit code onto **linbuf** (`~/code/linbuf`: the
+user's own package -- linear-typed buffers: a buffer has one owner and is frozen without a copy; a reserved length
+or CRC is a slot that must be filled exactly once; reads checked once for n bytes; base, bytestring and ghc-prim
+only; the user has allowed this dependency). linbuf's agent studied this project and wrote what would move and
+what it measured: `~/code/linbuf/docs/adopting.md`, "## dxf", and `PERF.md`. linbuf is READ ONLY for you:
+what it lacks or does wrong is a `report` with `about: linbuf` (it reaches its agent through the user), never an
+edit there. dwg is doing the same move now: its `AGENTS.md` Part three and `PERF.md` may show what worked.
+
+`cabal.project` now has `../linbuf`; add `linbuf` to the library's `build-depends`.
+
+In this order, each a commit that builds and passes the whole check, pushed:
+
+1. **The baseline.** Before any change: `bench exe` with a named `baseline` on the programs and samples named
+   below -- CPU, instructions, allocation, peak -- and their outputs kept under `.ghci-session/linbuf-base/` (one
+   a sample; the disk is small). Every later step is held against both: the SAME BYTES, and within 3% or better.
+   Programs: dxf's own bench (`dxf-write-bench`, parse and print of the samples in its PERF.md).
+2. **`DXF.Tag.Prim`** (12 `unsafeIndex`) on `LinBuf.Read` / `LinBuf.Index`.
+3. **`DXF.Intern`** (`unsafeRead`/`unsafeWrite` on a hash) on `LinBuf.Ints` (`readMasked`).
+4. **`DXF.Print`**'s BoundedPrims onto `LinBuf.Write` (`putBounded`, `decimal`) -- only if it costs nothing: the
+   printer is already fast (PERF.md). Doubles (`DXF.Tag.Double`) are not covered: leave them.
+   This move is for SAFETY alone (linbuf ranked dxf last): stop at the first step that costs, and say so.
+- **What is left**: every `unsafe*`, `Ptr`, `MagicHash` still here, each with why it stays (linbuf lacks it:
+  report it; or it is right as it is); `PERF.md`: the table of every step against the baseline.
+
+A module that comes out slower is NOT moved: say why in `PERF.md`, report what linbuf would need, leave it.
+Say WAITING when these are done, or when a step cannot be done without a change in linbuf (reported).
+
 ## What is not committed
 
 Data and compiled files stay out of the repository (`.gitignore`): no `*.dxf` -- the samples are another

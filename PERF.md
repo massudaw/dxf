@@ -214,3 +214,25 @@ exports of millions of lines matter.
 * Doubles are formatted again (shortest digits, which reproduces CAD output byte for byte) rather than
   copied from the source bytes: a copy would cost 20+ bytes per number held in memory.
 
+
+## The move onto linbuf (AGENTS.md, Part three)
+
+Each step is held against the baseline taken before any change (`bench` with `exe`, baseline `linbuf-base`,
+9 runs each, the run of least CPU).  The outputs of the baseline are kept in `.ghci-session/linbuf-base/`
+(not committed); every step must write the SAME BYTES and stay within 3 %.  The machine is shared (load
+average 9-16 while these were taken): CPU moves by 5-40 % between identical runs of the same binary, so
+instructions retired (stable to 0.1 %) are the figure a step is judged by, CPU the best of 9 beside it.
+
+`f001.dxf` in `samples/` is now a broken link; its copy `3CG BASE PLANS (from the SketchUp model).dxf` (the
+same 19,345,818 bytes) is linked as `.ghci-session/f001.dxf` (the bench tool splits arguments at spaces).
+
+Programs: `dxf-bench FILE round N OUT` (N parses of a fresh copy, each forced whole, then N prints; the
+last print written to OUT), `dxf-bench FILE printloop` (30 prints of one parse), `dxf-write-bench 100000
+R2010|R12 OUT` (build, to document, print, write).
+
+| step | commit | f001 round 3: CPU s / G instr | CPQ-0005 round 60 | condo A-301 round 60 | f001 printloop | write 100k R2010 | write 100k R12 | bytes |
+|---|---|--:|--:|--:|--:|--:|--:|---|
+| baseline | (this) | 1.17 / 8.32 | 1.06 / 7.98 | 0.71 / 7.83 | 3.67 / 29.36 | 0.92 / 5.39 | 0.82 / 4.88 | kept |
+
+Peak and allocation of the baseline: f001 round 179 MB / 854 MB, CPQ 28 / 1034, condo 24 / 957, printloop
+83 / 4165, write R2010 233 / 1004, R12 210 / 947.

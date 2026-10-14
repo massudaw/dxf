@@ -15,7 +15,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString.Unsafe as U
+import LinBuf.Index (index8)
 import Data.Int (Int16, Int32, Int64)
 import Data.Word (Word64)
 import GHC.Float (castWord64ToDouble)
@@ -46,7 +46,7 @@ scanBinary bs = (Fmt True False False r12, go 22)
   where
     n = B.length bs
     r12 = versionR12 bs
-    u i = fromIntegral (U.unsafeIndex bs i) :: Int
+    u i = fromIntegral (index8 bs i) :: Int
     need i k = if i + k > n then throw (DxfError i "binary DXF: unexpected end of data") else ()
     go !i
       | i >= n = []
@@ -57,15 +57,15 @@ scanBinary bs = (Fmt True False False r12, go 22)
     value c j = case kindOf c of
       KBin -> need j 1 `seq`
         let len = u j in need (j + 1) len `seq`
-           Tag c (hex (U.unsafeTake len (U.unsafeDrop (j + 1) bs))) : go (j + 1 + len)
+           Tag c (hex (B.take len (B.drop (j + 1) bs))) : go (j + 1 + len)
       KInt16 -> need j 2 `seq` Tag c (dec (fromIntegral (fromIntegral (le j 2) :: Int16))) : go (j + 2)
       KInt32 -> need j 4 `seq` Tag c (dec (fromIntegral (fromIntegral (le j 4) :: Int32))) : go (j + 4)
       KInt64 -> need j 8 `seq` Tag c (dec (fromIntegral (fromIntegral (le j 8) :: Int64))) : go (j + 8)
       KBool -> need j 1 `seq` Tag c (dec (u j)) : go (j + 1)
       KDouble -> need j 8 `seq` Tag c (strict (BB.doubleDec (castWord64ToDouble (fromIntegral (le j 8))))) : go (j + 8)
-      KStr -> case B.elemIndex 0 (U.unsafeDrop j bs) of
+      KStr -> case B.elemIndex 0 (B.drop j bs) of
         Nothing -> throw (DxfError j "binary DXF: unterminated string")
-        Just k -> Tag c (B.copy (U.unsafeTake k (U.unsafeDrop j bs))) : go (j + k + 1)
+        Just k -> Tag c (B.copy (B.take k (B.drop j bs))) : go (j + k + 1)
     le :: Int -> Int -> Word64
     le j k = foldr (\d a -> a `shiftL` 8 .|. fromIntegral (u (j + d))) 0 [0 .. k - 1]
     dec :: Int -> B.ByteString

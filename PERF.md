@@ -234,7 +234,7 @@ R2010|R12 OUT` (build, to document, print, write).
 |---|---|--:|--:|--:|--:|--:|--:|---|
 | baseline | ed43487 | 1.17 / 8.32 | 1.06 / 7.98 | 0.71 / 7.83 | 3.67 / 29.36 | 0.92 / 5.39 | 0.82 / 4.88 | kept |
 | 2. tag reader on `LinBuf.Index` | c564e67 | 1.23 / 8.46 (+1.7 %) | 1.22 / 7.92 (-0.8 %) | 1.20 / 7.77 (-0.8 %) | -- | -- | -- | SAME |
-| 3. interning on `LinBuf.Ints` | (this) | 1.18 / 8.47 (+1.8 %) | 0.96 / 8.11 (+1.6 %) | 0.89 / 7.84 (+0.1 %) | -- | -- | -- | SAME |
+| 3. interning on `LinBuf.Ints` | b80e201 | 1.18 / 8.47 (+1.8 %) | 0.96 / 8.11 (+1.6 %) | 0.89 / 7.84 (+0.1 %) | -- | -- | -- | SAME |
 
 Peak and allocation of the baseline: f001 round 179 MB / 854 MB, CPQ 28 / 1034, condo 24 / 957, printloop
 83 / 4165, write R2010 233 / 1004, R12 210 / 947.
@@ -260,3 +260,11 @@ The hash is `B.foldl'` (an `index8` loop cost 1 % more on the small files).  Aga
 file pays +2.4 % instructions (the extra read of the string by its number), f001 +0.1 %; against the
 baseline all three are within 2 %.  `unsafeDupablePerformIO` stays: `intern` is pure (interning does not
 change a value) over a table made for one parse.
+
+Beyond the list: the binary reader, `DXF.Tag.Binary.scanBinary`, read its bytes with `unsafeIndex` and its
+strings and binary chunks with `unsafeTake`/`unsafeDrop`; it now reads through `LinBuf.Index.index8` and
+`B.take`/`B.drop`.  No sample is binary, so it is measured on f001 written as binary DXF (12.9 MB, made
+with `tagsFile` and a binary `Fmt`, under `/tmp`): `dxf-bench /tmp/f001.bin.dxf round 3`, baseline
+`binary-base`, 7 runs -- 5.27 s / 39.66 G instructions before, 5.34 s / 40.13 G after (+1.2 %), the same
+bytes.  (The binary path is slow in itself -- 22 GB allocated for three parses, the values turned to text --
+which is another matter than this move.)

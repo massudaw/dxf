@@ -16,42 +16,55 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Unsafe as U
 import Data.ByteString.Builder.Prim (primBounded)
-import Data.ByteString.Builder.Prim.Internal (boundedPrim)
+import Data.ByteString.Builder.Prim.Internal (BoundedPrim, FixedPrim, boundedPrim, runB, runF)
 import Data.Word
 import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Ptr
-import Foreign.Storable
+import qualified LinBuf.Fixed as F
+import LinBuf.Builder (asBoundedPrim, asFixedPrim)
 import DXF.Tag.Double (writeDouble)
 
+-- The stores are linbuf's ('LinBuf.Fixed'), run at the builder's address
+-- ('asFixedPrim', 'asBoundedPrim', then 'runF'/'runB'): each of a size in
+-- its type, within the bound of the primitive that runs them all.  What is
+-- left here is the layout -- which store, and where the next one begins.
+
+fixedAt :: FixedPrim () -> Int -> Ptr Word8 -> IO (Ptr Word8)
+fixedAt fp k p = runF fp () p >> pure (p `plusPtr` k)
+{-# INLINE fixedAt #-}
+
+lfP, crlfP, sp1P, sp2P, zeroP :: FixedPrim ()
+lfP = asFixedPrim (\() -> F.u8 10)
+crlfP = asFixedPrim (\() -> F.u16le 0x0A0D)          -- CR, LF
+sp1P = asFixedPrim (\() -> F.u8 32)
+sp2P = asFixedPrim (\() -> F.u16le 0x2020)
+zeroP = asFixedPrim (\() -> F.u16le 0x2E30 F.<+> F.u8 48)  -- "0.0"
+{-# INLINE lfP #-}
+{-# INLINE crlfP #-}
+{-# INLINE sp1P #-}
+{-# INLINE sp2P #-}
+{-# INLINE zeroP #-}
+
+intP :: BoundedPrim Int
+intP = asBoundedPrim F.intDec
+{-# INLINE intP #-}
+
 eolW :: Bool -> Ptr Word8 -> IO (Ptr Word8)
-eolW crlf p
-  | crlf = pokeByteOff p 0 (13 :: Word8) >> pokeByteOff p 1 (10 :: Word8) >> pure (p `plusPtr` 2)
-  | otherwise = pokeByteOff p 0 (10 :: Word8) >> pure (p `plusPtr` 1)
+eolW crlf
+  | crlf = fixedAt crlfP 2
+  | otherwise = fixedAt lfP 1
 {-# INLINE eolW #-}
 
--- | A natural number in decimal.
-putNat :: Word -> Ptr Word8 -> IO (Ptr Word8)
-putNat w p = fill w (p `plusPtr` (k - 1)) >> pure (p `plusPtr` k)
-  where
-    k = len w 1
-    len n !a = if n < 10 then a else len (n `quot` 10) (a + 1 :: Int)
-    fill n q = do
-      pokeByteOff q 0 (fromIntegral (48 + n `rem` 10) :: Word8)
-      if n < 10 then pure () else fill (n `quot` 10) (q `plusPtr` (-1))
-
 putInt :: Int -> Ptr Word8 -> IO (Ptr Word8)
-putInt n p
-  | n < 0 = pokeByteOff p 0 (45 :: Word8) >> putNat (fromIntegral (negate n)) (p `plusPtr` 1)
-  | otherwise = putNat (fromIntegral n) p
+putInt = runB intP
+{-# INLINE putInt #-}
 
 -- | The group code line: the code, padded to three columns if the file
 -- is, and its line end.
 codeLine :: Bool -> Bool -> Int -> Ptr Word8 -> IO (Ptr Word8)
 codeLine pad crlf c p0 = do
   p1 <- if pad && c >= 0 && c < 100
-          then do pokeByteOff p0 0 (32 :: Word8)
-                  if c < 10 then pokeByteOff p0 1 (32 :: Word8) >> pure (p0 `plusPtr` 2)
-                            else pure (p0 `plusPtr` 1)
+          then if c < 10 then fixedAt sp2P 2 p0 else fixedAt sp1P 1 p0
           else pure p0
   p2 <- putInt c p1
   eolW crlf p2
@@ -73,9 +86,7 @@ shortBytes s = B.length s <= 64
 putDoubleTag :: Bool -> Bool -> Int -> Double -> Ptr Word8 -> IO (Ptr Word8)
 putDoubleTag pad crlf c x p0 = do
   p1 <- codeLine pad crlf c p0
-  p2 <- if x == 0 then do pokeByteOff p1 0 (48 :: Word8); pokeByteOff p1 1 (46 :: Word8)
-                          pokeByteOff p1 2 (48 :: Word8); pure (p1 `plusPtr` 3)
-        else writeDouble x p1
+  p2 <- if x == 0 then fixedAt zeroP 3 p1 else writeDouble x p1
   eolW crlf p2
 {-# INLINE putDoubleTag #-}
 

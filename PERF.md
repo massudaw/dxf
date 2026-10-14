@@ -302,20 +302,31 @@ blank, so every guard stops on it as it stopped at the end: f001 8.37 G against 
 8.16 / 8.14, condo A-301 7.88 / 7.85, CPU equal; SAME bytes on all three, the whole check passes (the
 300,000 correctly-rounded reads among it).  `at` (index8) stays only in the slow exact path.
 
-### Step 4: the printer -- not done, WAITING on linbuf
+### Step 4: the printer's stores on `LinBuf.Fixed` (after linbuf c766ab2)
 
-The printer's primitives (`DXF.Tag.Prim`, `DXF.Entity.FastOut`, `DXF.Entity.Common.headWriter`) are
-`BoundedPrim`s run inside a `Data.ByteString.Builder`: every codec writes `Out = Fmt -> Builder` (some 20
-modules) and `documentBytes` is that Builder's lazy `ByteString`.  A linbuf `Bounded` writes a
-`MutableByteArray` at an offset and runs only on a linbuf `Buf`: it cannot be used inside a Builder, so the
-move is not one primitive at a time but the whole printer and every codec rewritten to linear `Buf`
-writers.  And most values of a DXF file are reals, printed shortest by `DXF.Tag.Double` (Grisu2, a
-`Ptr` writer, which this move leaves alone): linbuf prints no reals and has no `Bounded` made from a `Ptr`
-writer, so each real would be formatted apart and copied in with `bytes`.  Measured in the session at -O2,
-674,000 reals as tags: in place (as now) 628 ms CPU, 310 MB allocated; formatted apart and copied 888 ms,
-3,433 MB.  The step costs by construction, so it stops here (AGENTS.md: "stop at the first step that
-costs").  Requested of linbuf (report b0b82522): a linbuf `Bounded` run inside a Builder's buffer, or a
-`Bounded` from a pinned-address writer so the real printer writes in place.
+At first not done: the printer's primitives (`DXF.Tag.Prim`, used by `DXF.Entity.FastOut` and
+`DXF.Entity.Common.headWriter`) are `BoundedPrim`s run inside a `Data.ByteString.Builder` (every codec
+writes `Out = Fmt -> Builder`), and a linbuf `Bounded` ran only on a linbuf `Buf`.  Reported (b0b82522);
+linbuf c766ab2 answered with `LinBuf.Builder.asFixedPrim`/`asBoundedPrim`: a `Fixed`/`Bounded` as a
+builder's primitive, storing at the builder's address.
+
+Every store `DXF.Tag.Prim` made by hand is now linbuf's: the integers (`F.intDec`, two digits a
+division, replacing dxf's digit-at-a-time `putNat`), the line ends (`u8 10`, `u16le 0x0A0D`), the code
+padding (`u8 32`, `u16le 0x2020`) and a real zero's `0.0` (`u16le <+> u8`); each made a bytestring
+primitive by `asFixedPrim`/`asBoundedPrim` and run at the tag's address by bytestring's `runF`/`runB`, inside
+the one `boundedPrim` that writes the whole tag (or the whole entity head), so a tag is still one call.
+No `pokeByteOff` is left.  A tag is not ONE linbuf `Bounded`: its shape is chosen at run time (padding
+by the code, CR LF or LF) and a `Bounded`'s size is in its type, with no choice or widening.
+
+Against HEAD on the same linbuf (5-7 runs, load 11-16): f001 printloop 28.16 G instructions against
+29.46 (0.96x), allocation 4165 -> 3553 MB; f001 round 3 8.17 / 8.32 (0.98x), 810 MB allocated against
+872; write 100k R2010 5.36 / 5.38, R12 4.90 / 4.89; CPQ-0005 8.09 / 8.16.  CPU swung -16 % to +30 % between
+reruns of the same pair.  SAME bytes on every output (f001, CPQ, both writes); the whole check passes.
+
+Not moved: a short string's copy (`unsafeUseAsCString` + `copyBytes`; linbuf has no `Bounded` copying
+up to n bytes of a `ByteString`) and the reals (`DXF.Tag.Double`, Grisu2: left alone by AGENTS.md;
+linbuf a4478a7's `shortestDigits` is Schubfach -- where Grisu2 is not shortest the bytes would change,
+which is a change of output for the user to decide, not of code).
 
 ### What is left
 
@@ -325,11 +336,11 @@ costs").  Requested of linbuf (report b0b82522): a linbuf `Bounded` run inside a
 | `Number` | `MagicHash` (`Double#` in an unboxed sum) | the unboxed sum is what keeps a read real from being allocated; no memory access. Right as it is |
 | `Number.Lemire` | `unsafeAt` (the power-of-ten table, its index range-checked just before), `unsafeShift*`, `timesWord2#` | arithmetic and a constant table, not a buffer: nothing of linbuf's. Right as it is |
 | `Tag.Double` | `Ptr` writer, `unsafeAt`, `unsafeShift*`, `boundedPrim` | the shortest-real printer: left alone by AGENTS.md (not covered by linbuf) |
-| `Tag.Prim`, `Entity.FastOut`, `Entity.Common` | `Ptr Word8` writers, `boundedPrim`, `unsafeUseAsCString` | the Builder primitives of step 4: linbuf has no Builder interop -- requested (report b0b82522) |
+| `Tag.Prim`, `Entity.FastOut`, `Entity.Common` | `Ptr Word8` positions (`plusPtr`), `boundedPrim`, `unsafeUseAsCString` + `copyBytes` | the stores are linbuf's (step 4); what stays is the layout between them -- a tag's shape is chosen at run time and a `Bounded`'s size is in its type -- and a short string's copy: linbuf has no `Bounded` copying a `ByteString` of at most n bytes (requested) |
 | `Entity.Fast` (`afterType`) | `unsafeForeignPtrToPtr`, `minusPtr` | the offset of a tag's value inside the input, from the two addresses; nothing is read through them, and the offset is verified (`slice bs off e == ty`, bounds checked) before use. linbuf has no "offset of a slice in its parent"; right as it is |
 | `Entity.FastKit` | `MagicHash` (`D#`) | builds a `Double` from the number reader's unboxed result; no memory access. Right as it is |
 | `Intern` | `unsafeDupablePerformIO` | `intern` is pure over a table made for one parse (interning does not change a value). Right as it is |
 | `Parse` | `unsafePerformIO` | `try`/`evaluate` turning the parser's `DxfError` into `Either`, and the per-parse interning table. Right as it is |
 
-Moved: `Tag.Text` (the tag reader: `index64le`, `index8`, `sliceAt`), `Tag.Binary` (`index8`), `Number` (`peek8`, `index8`), `Intern` (`LinBuf.Ints`,
+Moved: `Tag.Text` (the tag reader: `index64le`, `index8`, `sliceAt`), `Tag.Binary` (`index8`), `Number` (`peek8`, `index8`), `Tag.Prim` (`LinBuf.Fixed` stores through `LinBuf.Builder`), `Intern` (`LinBuf.Ints`,
 `readMasked`/`writeMasked`).

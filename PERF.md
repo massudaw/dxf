@@ -383,6 +383,14 @@ HEAD (4ebc02f), least CPU of 5-7 runs, load 8-12: f001 printloop 24.84 / 24.77 G
 f001 round 3 7.86 / 7.88 (1.00x), write 100k R2010 5.30 / 5.29 (1.00x), CPQ-0005 round 60 8.04 / 8.03
 (1.00x); the same bytes; the whole check passes.
 
+Tried and not moved: a whole tag as one linbuf `Bounded` (`padB <+> intDec code <+> eolB <+> value <+> eolB`,
+padding and line end each a `choose` between widened stores, as linbuf's reply to 29e3f67f suggested), run
+by `asBoundedPrim` in place of `Tag.Prim`'s `Ptr` steps.  The same bytes and the whole check, but against
+HEAD (b2d578d): f001 printloop 37.51 / 24.75 G instr (1.52x), CPU 1.83x, allocation 17.1 GB against 3.0;
+f001 round 3 1.16x instr (2.2 GB allocated against 0.76); writes 1.02x; CPQ-0005 1.01x.  The tag of
+`choose`s and `<+>`s is built per tag (a closure for each store, the choice not made at compile time),
+where the `Ptr` steps cost nothing.  Reverted; reported to linbuf.
+
 ### What is left
 
 | module | what | why it stays |

@@ -606,3 +606,22 @@ row), `Json`, `Bench.main`; the 7 big stores of `Entity.FastOut`/`FastKit`/`Fast
 Found on the way: the binary reader allocates 570 bytes per input byte (21.6 GB for three rounds of 12.9 MB;
 the text reader 13): each value is printed to text through a Builder made strict (`BB.intDec`/`doubleDec`,
 `BL.toStrict`) and each string copied.  Not this request's; next for the binary format.
+
+### 2. The checks on portkit (report 2f21c0f8; portkit's working tree at d71a566)
+
+`test/Check/Util.hs` and `test/Check/Oracle.hs` are portkit's copies (`bench/port/dxf`): the protocol (`Result`,
+`attempt`, `runAll`, `report`, `DXF_QUICK`) is `PortKit.Check`'s, and ezdxf's verdicts (`tools/compare.py`) are
+kept on disk by `PortKit.Oracle` in `.ghci-session/oracle`, keyed by the drawing, our summary of it and the
+oracle's version (compare.py, `tools/oracle_ext/*.py`, ezdxf's `__version__`).  `dxf-checks` depends on portkit.
+
+The whole check (`dxf-test full`), `/usr/bin/time -l`, the test process's instructions (ezdxf's processes in
+the CPU); load 45-65 for all four runs, so the CPU of a cold run is level within that noise:
+
+| run | wall s | CPU s | G instr | peak MB | output |
+|---|---|---|---|---|---|
+| own (59cf61f's test binary) | 106.9 | 97.1 | 105.81 | 450 | the baseline's |
+| portkit, cold (no verdict kept) | 110.7 | 98.4 | 105.53 | 418 | the same, byte for byte |
+| portkit, warm | 82.0 | 30.5 | 105.10 | 418 | the same, byte for byte |
+
+Warm (every later run, until compare.py, its extensions, ezdxf or a drawing's summary changes): CPU 97 -> 30 s;
+the test process's own instructions level (-0.3..-0.7%), peak lower (450 -> 418 MB).  Taken.

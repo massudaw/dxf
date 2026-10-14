@@ -1,5 +1,8 @@
--- | The oracle: ezdxf (Python) reads the same file; @tools/compare.py@
--- compares what it found with the library's summary.
+-- | The oracle on portkit (portkit's bench/port/dxf, request 2f21c0f8): ezdxf, through tools/compare.py, against
+-- what this library found in a file (DXF.Summary's JSON).  "PortKit.Oracle" keeps compare.py's answer on disk
+-- (.ghci-session/oracle), keyed by the drawing, the summary of ours and the oracle's version (compare.py, its
+-- extensions, ezdxf's version); before, it was kept in memory only, so each test run asked ezdxf about every
+-- file again.
 module Check.Oracle
   ( oracleFile, oracleFiles, oracleReset, oracleAvailable, typedTypes
   ) where
@@ -10,14 +13,12 @@ import qualified Data.ByteString.Lazy as BL
 import Data.IORef
 import qualified Data.Map.Strict as M
 import System.IO.Unsafe (unsafePerformIO)
-import Data.List (isPrefixOf, nub)
-import System.Directory (doesFileExist, getTemporaryDirectory)
-import System.Exit (ExitCode (..))
+import Data.List (isPrefixOf, nub, sort)
+import System.Directory (doesFileExist, getTemporaryDirectory, listDirectory)
 import System.FilePath (takeFileName, (</>))
-import System.IO (IOMode (..), hClose, openFile, readFile')
-import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, waitForProcess)
 import Check.Util
 import DXF
+import PortKit.Oracle
 
 python :: FilePath
 python = ".ref/venv/bin/python"
@@ -25,58 +26,67 @@ python = ".ref/venv/bin/python"
 oracleAvailable :: IO Bool
 oracleAvailable = doesFileExist python
 
--- | What was found for the files compared so far in this run.
+-- | compare.py FILE SUMMARY, its standard output and error together and its exit status as a last line (1 is
+-- "differences found", the lines say which; anything else, or 1 with no line, is compare.py failing).
+ezdxf :: FilePath -> Oracle
+ezdxf tmp = (oracle (\_ f _ -> Prints "/bin/sh" ["-c", "\"$0\" -I tools/compare.py \"$1\" \"$2\" 2>&1; echo \"EXIT $?\"", python, f, summaryOf tmp f]))
+  { oracleVersion = do
+      ext <- sort . filter (".py" `isSuffixOfS`) <$> listDirectory ("tools" </> "oracle_ext")
+      fs <- versionFiles ("tools/compare.py" : map (("tools" </> "oracle_ext") </>) ext)
+      v <- versionCommand python ["-I", "-c", "import ezdxf; print(ezdxf.__version__)"]
+      pure (fs ++ v)
+  , oracleExitOk = const True }
+  where isSuffixOfS s x = reverse s `isPrefixOf` reverse x
+
+summaryOf :: FilePath -> FilePath -> FilePath
+summaryOf tmp f = tmp </> ("dxf-summary-" ++ takeFileName f ++ ".json")
+
+-- | What each file came to, for the session (dxf's own rule: oracleReset empties it).
 cache :: IORef (M.Map FilePath Result)
 cache = unsafePerformIO (newIORef M.empty)
 {-# NOINLINE cache #-}
 
--- | Forget it: the code or the files may have changed.
 oracleReset :: IO ()
 oracleReset = writeIORef cache M.empty
 
--- | Compare one file with ezdxf; the differences are the failures.
 oracleFile :: FilePath -> IO Result
 oracleFile f = oracleFiles [f]
 
--- | Compare files with ezdxf, six Python processes at a time (each one
--- spends a quarter of a second importing ezdxf); the differences are the
--- failures.  A file compared before in this run is not compared again.
+-- | Every file's differences from ezdxf: six at a time, as dxf's own did.
 oracleFiles :: [FilePath] -> IO Result
 oracleFiles fs = do
   ok <- oracleAvailable
   if not ok then return [] else do
     known <- readIORef cache
-    mapM_ batch (chunks 6 [f | f <- fs, M.notMember f known])
+    tmp <- getTemporaryDirectory
+    -- six at a time, parsed, summarised and compared before the next six are parsed: a drawing parsed is let go
+    -- before the next batch (all parsed first held 90 drawings at once)
+    mapM_ (batch tmp) (chunks 6 (nub [ f | f <- fs, M.notMember f known ]))
     known' <- readIORef cache
-    return (concat [M.findWithDefault [] f known' | f <- fs])
+    return (concat [ M.findWithDefault [] f known' | f <- fs ])
   where
     chunks _ [] = []
     chunks n xs = let (a, b) = splitAt n xs in a : chunks n b
-    batch group = do
-      started <- mapM start group
-      mapM_ (\st -> finish st >>= \(f, r) -> modifyIORef' cache (M.insert f r)) started
-    start f = do
-      r <- parseFile f
-      case r of
-        Left e -> return (f, Left [f ++ ": does not parse: " ++ show e])
-        Right d -> do
-          tmp <- getTemporaryDirectory
-          let j = tmp </> ("dxf-summary-" ++ takeFileName f ++ ".json")
-              o = tmp </> ("dxf-compare-" ++ takeFileName f ++ ".out")
-          BL.writeFile j (summaryBytes d)
-          h <- openFile o WriteMode
-          (_, _, _, p) <- createProcess (proc python ["-I", "tools/compare.py", f, j]) { std_out = UseHandle h, std_err = UseHandle h }
-          return (f, Right (p, h, o))
-    finish (f, Left e) = return (f, e)
-    finish (f, Right (p, h, o)) = do
-      code <- waitForProcess p
-      hClose h
-      out <- readFile' o
-      let bad = [l | l <- lines out, any (`isPrefixOf` l) ["DIFF", "MISSING"]]
-      return (f, [f ++ ": " ++ l | l <- take 12 bad]
-        ++ [f ++ ": compare.py: " ++ take 300 out | code /= ExitSuccess, null bad])
+    batch tmp group = do
+      parsed <- mapM (\f -> parseFile f >>= \r -> case r of
+                          Left e -> pure (f, Just [f ++ ": does not parse: " ++ show e])
+                          Right d -> BL.writeFile (summaryOf tmp f) (summaryBytes d) >> pure (f, Nothing)) group
+      let jobs = [ f | (f, Nothing) <- parsed ]
+      kept <- oracleMany 6 (ezdxf tmp) [ ("compare", f, [summaryOf tmp f]) | f <- jobs ]
+      rs <- mapM (verdict tmp) (zip jobs kept)
+      modifyIORef' cache (M.union (M.fromList (rs ++ [ (f, e) | (f, Just e) <- parsed ])))
+    verdict tmp (f, k) = case k of
+      Left e -> pure (f, [f ++ ": compare.py: " ++ take 300 e])
+      Right kk -> withKeptText (ezdxf tmp) "compare" f kk (\t -> let out = BC.unpack (BL.toStrict t) in length out `seq` pure out)
+        >>= \r -> pure (f, either (\e -> [f ++ ": compare.py: " ++ take 300 e]) (lines' f) r)
+    lines' f out =
+      let ls = lines out
+          code = case reverse ls of l : _ | "EXIT " `isPrefixOf` l -> drop 5 l; _ -> "?"
+          body = unlines (filter (not . ("EXIT " `isPrefixOf`)) ls)
+          bad = [ l | l <- lines body, any (`isPrefixOf` l) ["DIFF", "MISSING"] ]
+      in [ f ++ ": " ++ l | l <- take 12 bad ] ++ [ f ++ ": compare.py: " ++ take 300 body | code /= "0", null bad ]
 
--- | The entity types a file has, typed (not kept as tags), anywhere in it.
+-- | The entity types a file has typed (not kept as tags only).
 typedTypes :: FilePath -> IO [B.ByteString]
 typedTypes f = do
   r <- parseFile f
@@ -88,6 +98,3 @@ typedTypes f = do
     everything d = concatMap flat (docEntities d ++ docObjects d ++ concatMap tabEntries (docTables d)
                      ++ concat [blockHead b : blockEntities b ++ maybe [] pure (blockEnd b) | b <- docBlocks d])
     flat e = e : concatMap flat (eKids e)
-
-_unused :: B.ByteString
-_unused = BC.empty

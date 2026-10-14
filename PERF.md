@@ -427,6 +427,28 @@ Instructions within 3% everywhere, allocation down; CPU swings both ways with th
 printloop CPU ran 2.22-2.71 s in these runs).  The same bytes on all four outputs; the whole check (43)
 passes.  Moved.
 
+Tried and NOT moved: an entity as one `Bounded` of tags (the step after 4d).  `Common.headWriter` became
+`headB`, the plain head as `bytesTagB 0 ty <+> optBytesB hc handle <+> ... <+> choose graphic (...)`, each
+optional tag a `choose` on whether it is there (bound strictly), run by one `asBoundedPrim`; `FastOut`'s
+LINE, VERTEX, POLYLINE and INSERT writers the same, so `Tag.Prim`'s `Ptr` writers and `runB` were gone.
+The same bytes on every output and the whole check, but against HEAD (a9738a8, same linbuf), least CPU of
+3-5 runs, load 7-10:
+
+| program | G instr ours / HEAD | ratio |
+|---|---|---|
+| f001 printloop | 25.67 / 26.09 | 0.98x |
+| f001 round 3 | 7.90 / 7.94 | 0.99x |
+| write 100k R2010 | 5.44 / 5.35 | 1.02x |
+| write 100k R12 | 4.96 / 4.93 | 1.01x |
+| CPQ-0005 round 60 | 8.69 / 8.20 | **1.06x** |
+| condo A-301 round 60 | 8.37 / 7.92 | **1.06x** |
+
+f001 is LINEs (the `FastOut` shapes); the small files are mostly other entities, whose plain head is
+now nine `choose`s evaluated at run time where the `Ptr` steps skipped an absent tag with one `maybe`:
++6 % on the whole round, so about +15-20 % on their print.  Over 3 %: reverted, and the `Ptr` positions
+stay (the patch kept as `.ghci-session/entity-bounded.patch`, not committed).  Per AGENTS.md this is where
+the printer's move stops.
+
 ### What is left
 
 | module | what | why it stays |
@@ -435,7 +457,7 @@ passes.  Moved.
 | `Number` | `MagicHash` (`Double#` in an unboxed sum) | the unboxed sum is what keeps a read real from being allocated; no memory access. Right as it is |
 | `Number.Lemire` | `unsafeAt` (the power-of-ten table, its index range-checked just before), `unsafeShift*`, `timesWord2#` | arithmetic and a constant table, not a buffer: nothing of linbuf's. Right as it is |
 | `Tag.Prim` | `runB` and `Ptr Word8` in the types of `putDoubleTag`/`putIntTag`/`putBytesTag` | a tag is one linbuf `Bounded` (4d); `runB` hands it to `Entity.FastOut`/`Entity.Common`, which write several tags in one primitive at a `Ptr`.  linbuf has no `Ptr`-taking runner for a `Bounded` (b0b82522 (b), not done) |
-| `Entity.FastOut`, `Entity.Common` | `Ptr Word8` positions, `boundedPrim` | an entity (a LINE's head and numbers, a plain head) is one primitive of several tags; the next step would be each entity as one `Bounded` of tags -- not tried, as a LINE's tags are chosen by its fields at run time (each a `choose`) |
+| `Entity.FastOut`, `Entity.Common` | `Ptr Word8` positions, `boundedPrim` | an entity (a LINE's head and numbers, a plain head) is one primitive of several tags.  As one `Bounded` of tags (each optional tag a `choose`) it cost +6 % instructions on the small samples (above): not moved.  What linbuf would need: a `Ptr`-taking runner for a `Bounded` (b0b82522 (b)) so these stay as they are without bytestring's `runB` |
 | `Entity.Fast` (`afterType`) | `unsafeForeignPtrToPtr`, `minusPtr` | the offset of a tag's value inside the input, from the two addresses; nothing is read through them, and the offset is verified (`slice bs off e == ty`, bounds checked) before use. linbuf has no "offset of a slice in its parent"; right as it is |
 | `Entity.FastKit` | `MagicHash` (`D#`) | builds a `Double` from the number reader's unboxed result; no memory access. Right as it is |
 | `Intern` | `unsafeDupablePerformIO` | `intern` is pure over a table made for one parse (interning does not change a value). Right as it is |

@@ -19,8 +19,10 @@
       ],
       "test": {
         "expr": "Check.run"
-      }
+      },
+      "on_turn_end": "/Users/wesleymassuda/code/ghci-session/tools/notify-waiting.sh"
     }
   },
-  "optimize": true
+  "optimize": true,
+  "knowledge": true
 }

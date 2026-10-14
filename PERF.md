@@ -389,7 +389,43 @@ by `asBoundedPrim` in place of `Tag.Prim`'s `Ptr` steps.  The same bytes and the
 HEAD (b2d578d): f001 printloop 37.51 / 24.75 G instr (1.52x), CPU 1.83x, allocation 17.1 GB against 3.0;
 f001 round 3 1.16x instr (2.2 GB allocated against 0.76); writes 1.02x; CPQ-0005 1.01x.  The tag of
 `choose`s and `<+>`s is built per tag (a closure for each store, the choice not made at compile time),
-where the `Ptr` steps cost nothing.  Reverted; reported to linbuf.
+where the `Ptr` steps cost nothing.  Reverted; reported to linbuf (66c0eb26).
+
+#### 4d. A whole tag as one `Bounded`, again (linbuf 2f6e1b8)
+
+linbuf found one cause (66c0eb26, fixed in 2f6e1b8): `intDec`'s sign was a branch around its `Bounded`,
+so a composed tag passed each side's store to a join point as a closure.  At 2f6e1b8 the same tag still
+cost 1.50x instructions and 17.1 GB on f001 printloop: the rest was dxf's.  A profile put 87% of the
+allocation in `$wfastOut`, and its Core showed why: `Tag.Double`'s `real` bound `shortestDigits`'s triple,
+the `(i, f)` split and the fraction's length in a lazy `where`, and a `Bounded` is a value with TWO stores
+(to an array, to an address) that share what it is built from -- so each became a thunk per real, and the
+digits were taken twice (for `x` and `negate x`).  Two changes in dxf:
+
+* `real` takes the digits of `abs x` once, strictly (a `case` with bangs), before any `choose`; `plain`
+  and `below` take the digits, not the double, and split them strictly.  (The rule: what a `Bounded` is
+  built from is evaluated before it, never bound lazily around it -- the same rule as linbuf's header,
+  one level up.)  f001 printloop: 17.1 -> 3.5 GB, 1.50x -> 1.03x instructions.
+* The three `Ptr` writers `Entity.FastOut` calls (`putDoubleTag`, `putIntTag`, `putBytesTag`) are
+  `NOINLINE`: each tag's whole layout (both line ends, three paddings, every real layout) was copied into
+  every place FastOut writes a tag -- its Core went from 6.8k lines to 53k.  Compiled once, FastOut's Core
+  is 2.2k lines and a tag is one call, as before.
+
+Now `Tag.Prim` has no address arithmetic: a tag is `codeB pad crlf c <+> value <+> eolB crlf` (a real's
+`choose (x == 0) zero (real x)`), run by `asBoundedPrim`; `fixedAt`, `plusPtr`, `runF` and bytestring's
+`boundedPrim` are gone from it.  A/B against HEAD (ab6f0ec, built on linbuf 2f6e1b8 too), the least CPU of
+5-9 runs, load 6-9:
+
+| program | G instr ours / HEAD | ratio | allocated ours / HEAD | CPU ratio |
+|---|---|---|---|---|
+| f001 printloop | 25.58 / 25.12 | 1.02x | 2.54 / 3.18 GB | 1.09x |
+| f001 round 3 | 7.92 / 7.86 | 1.01x | 727 / 792 MB | 1.15x |
+| write 100k R2010 | 5.35 / 5.25 | 1.02x | 967 MB | 1.02x |
+| write 100k R12 | 4.88 / 4.83 | 1.01x | 925 MB | 0.90x |
+| CPQ-0005 round 60 | 8.14 / 8.04 | 1.01x | 931 MB | 0.88x |
+
+Instructions within 3% everywhere, allocation down; CPU swings both ways with the load (HEAD's own
+printloop CPU ran 2.22-2.71 s in these runs).  The same bytes on all four outputs; the whole check (43)
+passes.  Moved.
 
 ### What is left
 
@@ -398,8 +434,8 @@ where the `Ptr` steps cost nothing.  Reverted; reported to linbuf.
 | `Tag.Text` (`codeLine`) | `unsafeShiftR` | a shift by `8 * k`, `k < 8`: never past the word; no memory read. Right as it is |
 | `Number` | `MagicHash` (`Double#` in an unboxed sum) | the unboxed sum is what keeps a read real from being allocated; no memory access. Right as it is |
 | `Number.Lemire` | `unsafeAt` (the power-of-ten table, its index range-checked just before), `unsafeShift*`, `timesWord2#` | arithmetic and a constant table, not a buffer: nothing of linbuf's. Right as it is |
-| `Tag.Double` | `runB` (to run the layout at a `Ptr` inside `Tag.Prim`'s tag writer) | a real is one linbuf `Bounded` (`shortestDigits`, the layout chosen by `choose`/`widen`); `runB` stays while `Tag.Prim`'s tag writer is a `Ptr` writer |
-| `Tag.Prim`, `Entity.FastOut`, `Entity.Common` | `Ptr Word8` positions (`plusPtr`), `boundedPrim` | the stores are linbuf's (step 4), the short string's copy too (`bytesUpTo`, linbuf 25c7637); what stays is the layout between them -- a tag's shape is chosen at run time and a `Bounded`'s size is in its type |
+| `Tag.Prim` | `runB` and `Ptr Word8` in the types of `putDoubleTag`/`putIntTag`/`putBytesTag` | a tag is one linbuf `Bounded` (4d); `runB` hands it to `Entity.FastOut`/`Entity.Common`, which write several tags in one primitive at a `Ptr`.  linbuf has no `Ptr`-taking runner for a `Bounded` (b0b82522 (b), not done) |
+| `Entity.FastOut`, `Entity.Common` | `Ptr Word8` positions, `boundedPrim` | an entity (a LINE's head and numbers, a plain head) is one primitive of several tags; the next step would be each entity as one `Bounded` of tags -- not tried, as a LINE's tags are chosen by its fields at run time (each a `choose`) |
 | `Entity.Fast` (`afterType`) | `unsafeForeignPtrToPtr`, `minusPtr` | the offset of a tag's value inside the input, from the two addresses; nothing is read through them, and the offset is verified (`slice bs off e == ty`, bounds checked) before use. linbuf has no "offset of a slice in its parent"; right as it is |
 | `Entity.FastKit` | `MagicHash` (`D#`) | builds a `Double` from the number reader's unboxed result; no memory access. Right as it is |
 | `Intern` | `unsafeDupablePerformIO` | `intern` is pure over a table made for one parse (interning does not change a value). Right as it is |

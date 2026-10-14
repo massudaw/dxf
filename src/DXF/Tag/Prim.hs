@@ -15,62 +15,47 @@ module DXF.Tag.Prim
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Builder as BB
 import Data.ByteString.Builder.Prim (primBounded)
-import Data.ByteString.Builder.Prim.Internal (BoundedPrim, FixedPrim, boundedPrim, runB, runF)
+import Data.ByteString.Builder.Prim.Internal (runB)
 import Data.Word
-import Foreign.Ptr
+import Foreign.Ptr (Ptr)
+import LinBuf.Fixed (Sized (..))
 import qualified LinBuf.Fixed as F
-import LinBuf.Builder (asBoundedPrim, asFixedPrim)
-import DXF.Tag.Double (writeDouble)
+import LinBuf.Builder (asBoundedPrim)
+import DXF.Tag.Double (real)
 
--- The stores are linbuf's ('LinBuf.Fixed'), run at the builder's address
--- ('asFixedPrim', 'asBoundedPrim', then 'runF'/'runB'): each of a size in
--- its type, within the bound of the primitive that runs them all.  What is
--- left here is the layout -- which store, and where the next one begins.
+-- A tag is one linbuf 'F.Bounded' (code line, value, line end), its size in its type, run at the
+-- builder's address ('asBoundedPrim'): the layout's choices (padding, line end, a zero) are 'F.choose'
+-- between stores widened ('F.widen') to one size.  No address is computed here.
 
-fixedAt :: FixedPrim () -> Int -> Ptr Word8 -> IO (Ptr Word8)
-fixedAt fp k p = runF fp () p >> pure (p `plusPtr` k)
-{-# INLINE fixedAt #-}
+-- | Padding of a code to three columns, if the file pads: two spaces, one, or none.
+padB :: Bool -> Int -> F.Bounded 2
+padB pad c = F.choose (pad && c >= 0 && c < 10) (F.bounded (F.u16le 0x2020))
+               (F.choose (pad && c >= 10 && c < 100) (F.widen (F.bounded (F.u8 32))) (F.widen none))
+{-# INLINE padB #-}
 
-lfP, crlfP, sp1P, sp2P, zeroP :: FixedPrim ()
-lfP = asFixedPrim (\() -> F.u8 10)
-crlfP = asFixedPrim (\() -> F.u16le 0x0A0D)          -- CR, LF
-sp1P = asFixedPrim (\() -> F.u8 32)
-sp2P = asFixedPrim (\() -> F.u16le 0x2020)
-zeroP = asFixedPrim (\() -> F.u16le 0x2E30 F.<+> F.u8 48)  -- "0.0"
-{-# INLINE lfP #-}
-{-# INLINE crlfP #-}
-{-# INLINE sp1P #-}
-{-# INLINE sp2P #-}
-{-# INLINE zeroP #-}
+-- | A line end: CR LF or LF.
+eolB :: Bool -> F.Bounded 2
+eolB crlf = F.choose crlf (F.bounded (F.u16le 0x0A0D)) (F.widen (F.bounded (F.u8 10)))
+{-# INLINE eolB #-}
 
-intP :: BoundedPrim Int
-intP = asBoundedPrim F.intDec
-{-# INLINE intP #-}
+-- | The group code line: the code, padded to three columns if the file is, and its line end.
+codeB :: Bool -> Bool -> Int -> F.Bounded 24
+codeB pad crlf c = padB pad c <+> F.intDec c <+> eolB crlf
+{-# INLINE codeB #-}
 
-eolW :: Bool -> Ptr Word8 -> IO (Ptr Word8)
-eolW crlf
-  | crlf = fixedAt crlfP 2
-  | otherwise = fixedAt lfP 1
-{-# INLINE eolW #-}
+intTagB :: Bool -> Bool -> Int -> Int -> F.Bounded 46
+intTagB pad crlf c i = codeB pad crlf c <+> F.intDec i <+> eolB crlf
+{-# INLINE intTagB #-}
 
-putInt :: Int -> Ptr Word8 -> IO (Ptr Word8)
-putInt = runB intP
-{-# INLINE putInt #-}
+doubleTagB :: Bool -> Bool -> Int -> Double -> F.Bounded 68
+doubleTagB pad crlf c x =
+  codeB pad crlf c <+> F.choose (x == 0) (F.widen (F.bounded zero)) (real x) <+> eolB crlf
+  where zero = F.u16le 0x2E30 <+> F.u8 48     -- "0.0"
+{-# INLINE doubleTagB #-}
 
--- | A short string's bytes ('shortBytes': at most 64), one copy.
-bytesP :: BoundedPrim B.ByteString
-bytesP = asBoundedPrim (F.bytesUpTo @64)
-{-# INLINE bytesP #-}
-
--- | The group code line: the code, padded to three columns if the file
--- is, and its line end.
-codeLine :: Bool -> Bool -> Int -> Ptr Word8 -> IO (Ptr Word8)
-codeLine pad crlf c p0 = do
-  p1 <- if pad && c >= 0 && c < 100
-          then if c < 10 then fixedAt sp2P 2 p0 else fixedAt sp1P 1 p0
-          else pure p0
-  p2 <- putInt c p1
-  eolW crlf p2
+bytesTagB :: Bool -> Bool -> Int -> B.ByteString -> F.Bounded 90
+bytesTagB pad crlf c v = codeB pad crlf c <+> F.bytesUpTo @64 v <+> eolB crlf
+{-# INLINE bytesTagB #-}
 
 -- | Whether a double is written by the primitive (plain decimal).
 plainDouble :: Double -> Bool
@@ -83,41 +68,35 @@ shortBytes :: B.ByteString -> Bool
 shortBytes s = B.length s <= 64
 {-# INLINE shortBytes #-}
 
--- | The writers behind the three tag builders, for callers that write
--- several tags in one primitive.  A double must satisfy 'plainDouble'
--- (at most 96 bytes), bytes 'shortBytes' (at most 80), an int takes 48.
+-- | The writers behind the three tag builders, for callers that write several tags in one primitive.  A
+-- double must satisfy 'plainDouble', bytes 'shortBytes'.  What one writes, for a code of at most four
+-- digits (DXF's are): a double at most 50 bytes, bytes 72, an int 28 -- within the 96, 80 and 48 the
+-- callers reserve.
 putDoubleTag :: Bool -> Bool -> Int -> Double -> Ptr Word8 -> IO (Ptr Word8)
-putDoubleTag pad crlf c x p0 = do
-  p1 <- codeLine pad crlf c p0
-  p2 <- if x == 0 then fixedAt zeroP 3 p1 else writeDouble x p1
-  eolW crlf p2
-{-# INLINE putDoubleTag #-}
+putDoubleTag pad crlf c x p = runB (asBoundedPrim (doubleTagB pad crlf c)) x p
+{-# NOINLINE putDoubleTag #-}
 
 putIntTag :: Bool -> Bool -> Int -> Int -> Ptr Word8 -> IO (Ptr Word8)
-putIntTag pad crlf c i p0 = do
-  p1 <- codeLine pad crlf c p0
-  p2 <- putInt i p1
-  eolW crlf p2
+putIntTag pad crlf c i p = runB (asBoundedPrim (intTagB pad crlf c)) i p
+{-# NOINLINE putIntTag #-}
 
 putBytesTag :: Bool -> Bool -> Int -> B.ByteString -> Ptr Word8 -> IO (Ptr Word8)
-putBytesTag pad crlf c v p0 = do
-  p1 <- codeLine pad crlf c p0
-  p2 <- runB bytesP v p1
-  eolW crlf p2
+putBytesTag pad crlf c v p = runB (asBoundedPrim (bytesTagB pad crlf c)) v p
+{-# NOINLINE putBytesTag #-}
 
 -- | A tag whose value is a double.
 doubleTag :: Bool -> Bool -> Int -> Double -> BB.Builder -> BB.Builder
 doubleTag pad crlf c d fallback
-  | plainDouble d = primBounded (boundedPrim 96 (putDoubleTag pad crlf c)) d
+  | plainDouble d = primBounded (asBoundedPrim (doubleTagB pad crlf c)) d
   | otherwise = fallback
 
 -- | A tag whose value is an integer.
 intTag :: Bool -> Bool -> Int -> Int -> BB.Builder
-intTag pad crlf c = primBounded (boundedPrim 48 (putIntTag pad crlf c))
+intTag pad crlf c = primBounded (asBoundedPrim (intTagB pad crlf c))
 
 -- | A tag whose value is bytes (a short string is written by the
 -- primitive; a long one by the fallback).
 bytesTag :: Bool -> Bool -> Int -> B.ByteString -> BB.Builder -> BB.Builder
 bytesTag pad crlf c s fallback
-  | shortBytes s = primBounded (boundedPrim 80 (putBytesTag pad crlf c)) s
+  | shortBytes s = primBounded (asBoundedPrim (bytesTagB pad crlf c)) s
   | otherwise = fallback

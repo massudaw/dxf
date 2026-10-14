@@ -14,24 +14,28 @@ module DXF.Intern
   ( Interner, newInterner, intern, internMaybe, internSize
   ) where
 
-import Data.Array.Base (unsafeRead, unsafeWrite)
-import Data.Array.IO (IOArray, newArray)
-import Data.Bits (shiftR, xor, (.&.))
+import Control.Monad.ST (RealWorld, stToIO)
+import Data.Array.IO (IOArray, newArray, readArray, writeArray)
+import Data.Bits (shiftR, xor)
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Unsafe as BU
 import Data.IORef
 import qualified Data.Map.Strict as M
+import LinBuf.Ints (Ints, newInts, readMasked, writeMasked)
 import System.IO.Unsafe (unsafeDupablePerformIO)
 
+-- | The cache holds, for each hash slot, the number of the string last seen
+-- there (-1: none); the strings are kept in 'iStrings' by number, and the
+-- map gives the number of every string held.
 data Interner = Interner
-  { iCache :: !(IOArray Int B.ByteString)
-  , iMap   :: !(IORef (M.Map B.ByteString B.ByteString))
+  { iCache   :: !(Ints RealWorld)
+  , iStrings :: !(IOArray Int B.ByteString)
+  , iMap     :: !(IORef (M.Map B.ByteString Int))
   }
 
 -- | A new table.  Strings longer than 'maxLen' are left alone, and the
 -- table stops growing at 'maxStrings'.
 newInterner :: IO Interner
-newInterner = Interner <$> newArray (0, slots - 1) B.empty <*> newIORef M.empty
+newInterner = Interner <$> stToIO (newInts slots (-1)) <*> newArray (0, maxStrings - 1) B.empty <*> newIORef M.empty
 
 slots, maxLen, maxStrings :: Int
 slots = 1024
@@ -43,11 +47,7 @@ internSize :: Interner -> IO Int
 internSize t = M.size <$> readIORef (iMap t)
 
 hash :: B.ByteString -> Int
-hash v = go 0 5381
-  where
-    n = B.length v
-    go !i !h | i >= n = (h `xor` (h `shiftR` 10)) .&. (slots - 1)
-             | otherwise = go (i + 1) (h * 33 + fromIntegral (BU.unsafeIndex v i))
+hash v = let h = B.foldl' (\a w -> a * 33 + fromIntegral w) 5381 v in h `xor` (h `shiftR` 10)
 
 -- | The one copy of a string.
 intern :: Interner -> B.ByteString -> B.ByteString
@@ -55,8 +55,10 @@ intern t v
   | n == 0 || n > maxLen = v
   | otherwise = unsafeDupablePerformIO $ do
       let !h = hash v
-      c <- unsafeRead (iCache t) h
-      if c == v then pure c else slow t h v
+      k <- stToIO (readMasked (iCache t) h)
+      if k < 0 then slow t h v else do
+        c <- readArray (iStrings t) k
+        if c == v then pure c else slow t h v
   where n = B.length v
 {-# INLINE intern #-}
 
@@ -64,13 +66,15 @@ slow :: Interner -> Int -> B.ByteString -> IO B.ByteString
 slow t h v = do
   m <- readIORef (iMap t)
   case M.lookup v m of
-    Just c -> unsafeWrite (iCache t) h c >> pure c
+    Just k -> stToIO (writeMasked (iCache t) h k) >> readArray (iStrings t) k
     Nothing
       | M.size m >= maxStrings -> pure v
       | otherwise -> do
           let !c = B.copy v
-          writeIORef (iMap t) $! M.insert c c m
-          unsafeWrite (iCache t) h c
+              !k = M.size m
+          writeArray (iStrings t) k c
+          writeIORef (iMap t) $! M.insert c k m
+          stToIO (writeMasked (iCache t) h k)
           pure c
 {-# NOINLINE slow #-}
 

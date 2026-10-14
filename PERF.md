@@ -233,7 +233,8 @@ R2010|R12 OUT` (build, to document, print, write).
 | step | commit | f001 round 3: CPU s / G instr | CPQ-0005 round 60 | condo A-301 round 60 | f001 printloop | write 100k R2010 | write 100k R12 | bytes |
 |---|---|--:|--:|--:|--:|--:|--:|---|
 | baseline | ed43487 | 1.17 / 8.32 | 1.06 / 7.98 | 0.71 / 7.83 | 3.67 / 29.36 | 0.92 / 5.39 | 0.82 / 4.88 | kept |
-| 2. tag reader on `LinBuf.Index` | (this) | 1.23 / 8.46 (+1.7 %) | 1.22 / 7.92 (-0.8 %) | 1.20 / 7.77 (-0.8 %) | -- | -- | -- | SAME |
+| 2. tag reader on `LinBuf.Index` | c564e67 | 1.23 / 8.46 (+1.7 %) | 1.22 / 7.92 (-0.8 %) | 1.20 / 7.77 (-0.8 %) | -- | -- | -- | SAME |
+| 3. interning on `LinBuf.Ints` | (this) | 1.18 / 8.47 (+1.8 %) | 0.96 / 8.11 (+1.6 %) | 0.89 / 7.84 (+0.1 %) | -- | -- | -- | SAME |
 
 Peak and allocation of the baseline: f001 round 179 MB / 854 MB, CPQ 28 / 1034, condo 24 / 957, printloop
 83 / 4165, write R2010 233 / 1004, R12 210 / 947.
@@ -250,3 +251,12 @@ the shared `empty`, so the slice is no longer built in place).  So `slice` keeps
 its offsets are those `nextTag` found in the same bytes.  linbuf has no checked slice at a position outside
 its `Parser` (reported).  CPU on the small files moves 0.7-1.2 s between identical runs on this machine;
 instructions are within 2 % on all three.
+
+Step 3, `DXF.Intern`.  The direct-mapped cache was an `IOArray` of the strings themselves, read and written
+with `unsafeRead`/`unsafeWrite`.  Now it is a `LinBuf.Ints` of 1024 string NUMBERS (-1 for none), read and
+written with `readMasked`/`writeMasked` (the mask is the table's: no check, never out of range); the
+strings are held by number in an `IOArray` read with the checked `readArray`, and the map gives the number.
+The hash is `B.foldl'` (an `index8` loop cost 1 % more on the small files).  Against step 2 the small CPQ
+file pays +2.4 % instructions (the extra read of the string by its number), f001 +0.1 %; against the
+baseline all three are within 2 %.  `unsafeDupablePerformIO` stays: `intern` is pure (interning does not
+change a value) over a table made for one parse.

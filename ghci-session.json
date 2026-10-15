@@ -1,0 +1,28 @@
+{
+  "default": "dxf",
+  "hygiene": false,
+  "summarize_cmd": "GHS_PROVIDER=claude GHS_CLAUDE_SUMMARIZE_MODEL=claude-haiku-5-5 ghci-session summarize",
+  "summarize_jobs": 4,
+  "targets": {
+    "dxf": {
+      "units": [
+        "lib:dxf",
+        "lib:dxf-checks"
+      ],
+      "watch": [
+        "src",
+        "test"
+      ],
+      "modules": [
+        "DXF",
+        "Check"
+      ],
+      "test": {
+        "expr": "Check.run"
+      },
+      "on_turn_end": "/Users/wesleymassuda/code/ghci-session/tools/notify-waiting.sh"
+    }
+  },
+  "optimize": true,
+  "knowledge": true
+}

@@ -719,3 +719,18 @@ byte for byte (R12, R2010, generated lines between held ones).
 
 All outputs cmp SAME with dd7469e's. A generated model is made four to five times (the problems,
 the measures, the print) and is still the cheapest: building a line costs less than the GC of holding it.
+
+## portkit v0.2.0 (request f49eae03)
+
+portkit v0.2.0 (14699fb) against v0.1.0 (ba98120), each a clean clone built with dxf 072a848 (linbuf, membudget,
+linstream as their working trees), the full check (`dxf-test full`) run from the dxf tree under `/usr/bin/time -l`,
+the oracle's store emptied before each cold run (`/tmp/wbtools/checkrun.sh`). Load 5-7.
+
+| run       | v0.1.0 wall / CPU / instr / peak | v0.2.0 wall / CPU / instr / peak | CPU, instr |
+|-----------|----------------------------------|----------------------------------|------------|
+| cold      | 30.2 s / 76.6 s / 103.91 G / 453 MB | 32.9 s / 77.3 s / 103.95 G / 453 MB | 1.01x, 1.00x |
+| warm (2)  | 16.6-18.4 s / 15.9-17.7 s / 103.60 G / 452 MB | 18.4-18.6 s / 17.7 s / 103.49 G / 453 MB | 1.00-1.11x (noise), 1.00x |
+
+44 checks PASS on both, the whole output the same in all six runs. Nothing changes in dxf: its checks run through
+`PortKit.Check.runAll`, which starts the round; `PortKit.Select` is not taken (every dxf check imports the reader,
+as portkit's adopting.md says). dxf builds against `../portkit` as before; its working tree is at the tag.

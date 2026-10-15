@@ -84,7 +84,10 @@ oracleFiles fs = do
           code = case reverse ls of l : _ | "EXIT " `isPrefixOf` l -> drop 5 l; _ -> "?"
           body = unlines (filter (not . ("EXIT " `isPrefixOf`)) ls)
           bad = [ l | l <- lines body, any (`isPrefixOf` l) ["DIFF", "MISSING"] ]
-      in [ f ++ ": " ++ l | l <- take 12 bad ] ++ [ f ++ ": compare.py: " ++ take 300 body | code /= "0", null bad ]
+          -- the answer is about this drawing (not another's kept answer in its place: portkit's canary, bb6b78c2)
+          named = [ l | l <- ls, "DRAWING " `isPrefixOf` l ] == ["DRAWING " ++ f]
+      in [ f ++ ": compare.py answered about another drawing (" ++ take 200 (unwords [ l | l <- ls, "DRAWING " `isPrefixOf` l ]) ++ ")" | not named ]
+         ++ [ f ++ ": " ++ l | l <- take 12 bad ] ++ [ f ++ ": compare.py: " ++ take 300 body | code /= "0", null bad ]
 
 -- | The entity types a file has typed (not kept as tags only).
 typedTypes :: FilePath -> IO [B.ByteString]

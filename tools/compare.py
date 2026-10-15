@@ -6,7 +6,8 @@ SUMMARY.json is written by DXF.Summary.  Exit status 0 when everything the
 library found agrees with ezdxf and the library has every attribute ezdxf
 shows for the types it has a codec for; otherwise the differences are
 printed and the status is 1.  A line "UNTYPED type=count ..." tells which
-entity types the library keeps as tags only.
+entity types the library keeps as tags only.  The first line, "DRAWING FILE",
+names the drawing the answer is about (a kept answer is checked against it).
 
 Attributes are named as ezdxf names them (dxf.start, dxf.center ...).
 Types with parts ezdxf does not show as attributes (the vertices of an
@@ -173,6 +174,7 @@ TABLES = {
 
 def main():
     path, jpath = sys.argv[1], sys.argv[2]
+    print("DRAWING", path, flush=True)
     verbose = "--verbose" in sys.argv
     ours = json.load(open(jpath))
     try:

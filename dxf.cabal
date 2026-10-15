@@ -73,6 +73,7 @@ library
                     DXF.Encoding
                     DXF.Tag.Text
                     DXF.Tag.Binary
+                    DXF.Tag.BinText
                     DXF.Tag.Out
                     DXF.Tag.Double
                     DXF.Tag.Prim

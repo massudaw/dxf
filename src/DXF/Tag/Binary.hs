@@ -10,26 +10,22 @@ module DXF.Tag.Binary
   ) where
 
 import Control.Exception (throw)
-import Data.Bits (shiftL, shiftR, (.&.), (.|.))
+import Data.Bits (shiftL, (.|.))
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Char8 as BC
-import qualified Data.ByteString.Lazy as BL
-import LinBuf.Index (index8)
+import LinBuf.Index (index8, index16le, index32le, index64le, sliceAt)
 import Data.Int (Int16, Int32, Int64)
-import Data.Word (Word64)
 import GHC.Float (castWord64ToDouble)
 import DXF.Number
 import DXF.Tag
+import DXF.Tag.BinText (hexText, intText, showDouble)
 
 binarySignature :: B.ByteString
 binarySignature = BC.pack "AutoCAD Binary DXF\r\n\x1a\0"
 
 isBinary :: B.ByteString -> Bool
 isBinary = B.isPrefixOf binarySignature
-
-strict :: BB.Builder -> B.ByteString
-strict = BL.toStrict . BB.toLazyByteString
 
 -- | R12 or older, from the $ACADVER found in the first kilobyte.
 versionR12 :: B.ByteString -> Bool
@@ -56,26 +52,19 @@ scanBinary bs = (Fmt True False False r12, go 22)
             else need i 2 `seq` value (u i .|. (u (i + 1) `shiftL` 8)) (i + 2)
     -- Each tag is made (its bytes read) before it is consed: the list is lazy, its tags are not.
     value !c !j = case kindOf c of
+    -- A value's text is made from its number ('DXF.Tag.BinText'); a string is a slice of the input.
       KBin -> need j 1 `seq`
         let !len = u j in need (j + 1) len `seq`
-           emit (Tag c (hex (B.take len (B.drop (j + 1) bs)))) (j + 1 + len)
-      KInt16 -> need j 2 `seq` emit (Tag c (dec (fromIntegral (fromIntegral (le j 2) :: Int16)))) (j + 2)
-      KInt32 -> need j 4 `seq` emit (Tag c (dec (fromIntegral (fromIntegral (le j 4) :: Int32)))) (j + 4)
-      KInt64 -> need j 8 `seq` emit (Tag c (dec (fromIntegral (fromIntegral (le j 8) :: Int64)))) (j + 8)
-      KBool -> need j 1 `seq` emit (Tag c (dec (u j))) (j + 1)
-      KDouble -> need j 8 `seq` emit (Tag c (strict (BB.doubleDec (castWord64ToDouble (le j 8))))) (j + 8)
+           emit (Tag c (hexText (sliceAt bs (j + 1) len))) (j + 1 + len)
+      KInt16 -> need j 2 `seq` emit (Tag c (intText (fromIntegral (fromIntegral (index16le bs j) :: Int16)))) (j + 2)
+      KInt32 -> need j 4 `seq` emit (Tag c (intText (fromIntegral (fromIntegral (index32le bs j) :: Int32)))) (j + 4)
+      KInt64 -> need j 8 `seq` emit (Tag c (intText (fromIntegral (fromIntegral (index64le bs j) :: Int64)))) (j + 8)
+      KBool -> need j 1 `seq` emit (Tag c (intText (u j))) (j + 1)
+      KDouble -> need j 8 `seq` emit (Tag c (showDouble (castWord64ToDouble (index64le bs j)))) (j + 8)
       KStr -> case B.elemIndex 0 (B.drop j bs) of
         Nothing -> throw (DxfError j "binary DXF: unterminated string")
-        Just k -> emit (Tag c (B.copy (B.take k (B.drop j bs)))) (j + k + 1)
+        Just k -> emit (Tag c (sliceAt bs j k)) (j + k + 1)
     emit !t !k = t : go k
-    le :: Int -> Int -> Word64
-    le j k = foldr (\d a -> a `shiftL` 8 .|. fromIntegral (u (j + d))) 0 [0 .. k - 1]
-    dec :: Int -> B.ByteString
-    dec !i = strict (BB.intDec i)
-
-hex :: B.ByteString -> B.ByteString
-hex = strict . B.foldr (\w b -> hexDigit (w `shiftR` 4) <> hexDigit (w .&. 15) <> b) mempty
-  where hexDigit d = BB.word8 (if d < 10 then 48 + d else 55 + d)
 
 unhex :: B.ByteString -> B.ByteString
 unhex s = fst (B.unfoldrN (B.length s `div` 2) step 0)

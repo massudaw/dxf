@@ -734,3 +734,46 @@ the oracle's store emptied before each cold run (`/tmp/wbtools/checkrun.sh`). Lo
 44 checks PASS on both, the whole output the same in all six runs. Nothing changes in dxf: its checks run through
 `PortKit.Check.runAll`, which starts the round; `PortKit.Select` is not taken (every dxf check imports the reader,
 as portkit's adopting.md says). dxf builds against `../portkit` as before; its working tree is at the tag.
+
+## The binary DXF reader without the text round trip (user, 2026-10-15)
+
+`DXF.Tag.Binary.scanBinary` allocated about 470 bytes for each byte it read: each number went through a
+`Builder` run (`BB.intDec`, `BB.doubleDec`) to a lazy 4 KB chunk and a strict copy, and each string was
+`B.copy`'d.  A tag's value is still its text (a `Tag` means the same from either format, and `dxf-summary`
+prints header values as that text), but the text is now made straight from the number, in
+`DXF.Tag.BinText`:
+
+- integers 0 .. 999: a slice of one constant (`"0123...999"`), nothing allocated; others `decimal` in a
+  20-byte linbuf `runPinned` buffer, frozen without a copy;
+- doubles: linbuf's `shortestDigits` laid out as `show` lays them out (plain from 0.1 to 10^7, else
+  `d.ddde±k`), in a 32-byte `runPinned` buffer.  Schubfach and `show` take different digits in two cases
+  only -- a candidate on the edge of the rounding interval (`1e23`: `show` gives `9.999999999999999e22`) and a
+  tie between two candidates (`12.566970825195312|3`) -- and both need `m*10^e` to be a 53-bit dyadic: with
+  `e < 0`, `m >= 2^52` and `5^-e` dividing `m` or `2m±1`; with `e >= 0`, a double of `2^52` or more.  Those
+  go through `BB.doubleDec` as before (into a 32-byte chunk); every other double is laid out from its digits.
+  Checked: the 674,270 doubles of f001.bin and 100,026 others (float32-made ones among them, which tie) give
+  the very text `BB.doubleDec` gives;
+- strings: `sliceAt` of the input; binary chunks: hex written by linbuf into a buffer of twice their size;
+- the numbers read with `LinBuf.Index.index16le`/`index32le`/`index64le` (no list fold of bytes).
+
+Measured against 6ec177f's binaries (`/tmp/dxf-bench-6ec1`), dxf at the commit of this section, linbuf
+b4f0ebd, built `-O2`; least CPU of 5 runs where it says so:
+
+| run | before | after | after / before |
+|---|---|---|---|
+| `dxf-bench f001.bin scan` (tags streamed): time | 2,261 ms | 150 ms | 0.07 |
+| ... allocated | 6,087 MB (473 B / input byte) | 217 MB (16.9 B / byte; text f001: 192 MB) | 0.036 |
+| `dxf-bench f001.bin parse` (parse + print once): parse | 1,686 ms | 455 ms | 0.27 |
+| ... allocated | 7,558 MB | 1,687 MB | 0.22 |
+| ... max residency / peak RSS | 97 MB / 172 MB | 53 MB / 115 MB | 0.55 / 0.67 |
+| ... instructions | 13.23 G | 5.43 G | 0.41 |
+| `dxf-bench f001.bin round 3` (5 runs): CPU | 5.30 s | 2.43 s | 0.46 |
+| ... instructions / peak | 39.42 G / 242 MB | 15.99 G / 140 MB | 0.41 / 0.58 |
+| ... allocated | 21,990 MB (adoption baseline) | 4,826 MB | 0.22 |
+| `dxf-bench f001 round 3` (text, 5 runs): CPU / instr / peak | 1.03 s / 7.86 G / 119 MB | 0.96 s / 7.88 G / 119 MB | 0.93 / 1.00 / 1.00 |
+| `dxf-bench CPQ-0005 round 60` (text, 5 runs) | 1.32 s / 8.09 G / 29 MB | 1.25 s / 8.13 G / 29 MB | 0.95 / 1.00 / 1.00 |
+
+The same output: `dxf-summary` of all 115 files (samples, fixtures, f001 text and binary) the same as
+`adopt-base/summary`; the round-3 prints of f001.bin, f001 and CPQ, and the round-1 prints of the three binary
+fixtures, byte for byte the same as 6ec177f's; the full check 44/44.  The text reader is not touched (its
+figures move by noise only).

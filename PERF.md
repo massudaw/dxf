@@ -795,3 +795,29 @@ and portkit 0.4.1 (d4043a8) puts the append under one lock per process.
 The output is the same: 44 PASS in the session and from `dxf-test full`. This includes runs with the index
 deleted first, so every thread appends. `portkit-oracle gc -- dxf-test full` removed 424 per-path hash files
 left by 0.3 (1.7 MB): the store went from 2.3 MB to 560 KB. The disk had 16 GB free.
+
+## readDouble on LinBuf.Decimal (linbuf v0.1.5, report 7b3de9c9)
+
+`DXF.Number.readDouble` / `readDoubleU` keep what is DXF's -- blanks before and after, a FORTRAN `D` exponent (rare:
+copied with an `e` in its place) -- and read the number with `LinBuf.Decimal.scanDouble` (Clinger, Eisel-Lemire,
+`Integer` when neither decides; the 5^q table a ByteArray). `DXF.Number.Lemire` is gone, and with it the
+`Number.Lemire` rows of the linbuf and membudget tables above (its `unsafeAt`s and its CAF are linbuf's now).
+
+Measured against dxf 10dd8bd, both on linbuf 965e9d2 (v0.1.5 + docs), one round of 3 runs (instructions the steady
+figure; Faster iteration):
+
+| program | CPU s (new / old) | G instr (new / old) | ratio instr |
+|---|---|---|---|
+| `dxf-bench f001.dxf parse` | -- | 2.54 / 2.66 | 0.95 |
+| `dxf-bench f001.dxf round 3` | 0.72 / 0.85 | 7.37 / 7.72 | 0.95 |
+| `dxf-bench CPQ-0005 round 60` | 0.98 / 0.95 | 7.96 / 8.12 | 0.98 |
+| `dxf-bench condo_A-301_arch-elevation round 60` | 0.77 / 0.74 | 7.78 / 8.01 | 0.97 |
+
+f001 round 3 allocates 670 instead of 714 MB. Its peak RSS reads 137 against 119 MB, but the live heap is the same
+(max residency 43.0 / 42.6 MB): the difference is "lost to fragmentation" at one GC's timing, and the old binary swings
+as much with the nursery size alone (`-A3m` 168, `-A4m` 109, `-A5m` 113, `-A8m` 119 MiB; the new 169 / 127 / 127 / 115).
+Parse alone and round 1: the same total memory (f001 71-74, CPQ and condo 11 MiB).
+
+Same output: 44 edge strings (blanks, signs, `.5`, `5.`, `1e`, `1D5`, `1e400`, subnormals, 23-38 digits) read as
+before; prints of 115 samples and fixtures byte-identical to 10dd8bd's; `dxf-write-bench 100000` R12 and R2010, held
+and gen, byte-identical; check 44.

@@ -1,27 +1,21 @@
-{-# LANGUAGE BangPatterns, MagicHash, UnboxedSums, UnboxedTuples #-}
+{-# LANGUAGE BangPatterns, MagicHash, UnboxedSums, UnboxedTuples, OverloadedStrings #-}
 -- | Numbers parsed straight from the bytes of a tag value: no 'String',
--- no 'read'.  'readDouble' is correctly rounded: the fast path is exact
--- (mantissa below 2^53, decimal exponent within +-22, one IEEE operation),
--- every other number goes through exact 'Integer' arithmetic.
+-- no 'read'.  'readDouble' is correctly rounded: it is linbuf's
+-- 'LinBuf.Decimal' with DXF's blanks and @D@ exponents around it.
 module DXF.Number
   ( readDouble, readDoubleU, readInt, readHex
   ) where
 
 import qualified Data.ByteString as B
-import LinBuf.Index (index8, peek8)
+import qualified Data.ByteString.Unsafe as BU
+import LinBuf.Index (peek8)
+import qualified LinBuf.Decimal as LD
 import Data.Bits (shiftL, (.|.))
-import Data.Ratio ((%))
-import Data.Word (Word64)
 import GHC.Exts (Double (D#), Double#)
-import DXF.Number.Lemire (eiselLemire)
 
 isSp :: Int -> Bool
 isSp c = c == 32 || c == 9 || c == 13 || c == 10
 {-# INLINE isSp #-}
-
-at :: B.ByteString -> Int -> Int
-at bs i = fromIntegral (index8 bs i)
-{-# INLINE at #-}
 
 -- The scanners read with 'peek8': the byte, or -1 past the end -- which no
 -- guard below accepts (not a digit, sign, point, exponent letter or blank),
@@ -60,13 +54,6 @@ readHex bs
       | c >= 97 && c <= 102 = Just (a `shiftL` 4 .|. fromIntegral (c - 87))
       | otherwise = Nothing
 
-pow10 :: Int -> Double
-pow10 k = case k of
-  0 -> 1e0; 1 -> 1e1; 2 -> 1e2; 3 -> 1e3; 4 -> 1e4; 5 -> 1e5; 6 -> 1e6
-  7 -> 1e7; 8 -> 1e8; 9 -> 1e9; 10 -> 1e10; 11 -> 1e11; 12 -> 1e12
-  13 -> 1e13; 14 -> 1e14; 15 -> 1e15; 16 -> 1e16; 17 -> 1e17; 18 -> 1e18
-  19 -> 1e19; 20 -> 1e20; 21 -> 1e21; _ -> 1e22
-
 -- | A floating point number: sign, digits, optional fraction, optional
 -- exponent, blanks around.  'Nothing' when the bytes are not a number.
 readDouble :: B.ByteString -> Maybe Double
@@ -77,116 +64,30 @@ readDouble bs = case readDoubleU bs of
 
 -- | 'readDouble' without a box for the answer: the unboxed sum is returned
 -- in registers, so reading a number allocates nothing.
+--
+-- The number itself is linbuf's ('LinBuf.Decimal.scanDouble': Clinger's
+-- exact path, Eisel-Lemire, 'Integer' when neither decides -- correctly
+-- rounded for any count of digits); what is DXF's is around it: blanks
+-- before and after, and a FORTRAN @D@ exponent (rare: the bytes are copied
+-- with an @e@ in its place).
 readDoubleU :: B.ByteString -> (# (# #) | Double# #)
-readDoubleU bs = rdStart bs 0
-
--- The scanner is a set of top-level functions with every value passed in
--- an argument: no closure is built per number.
-
-rdStart :: B.ByteString -> Int -> (# (# #) | Double# #)
-rdStart bs !i = case peek8 bs i of
-  c | c < 0 -> (# (# #) | #)
-    | isSp c -> rdStart bs (i + 1)
-    | c == 45 -> rdInts bs (i + 1) 0 0 0 True i
-    | c == 43 -> rdInts bs (i + 1) 0 0 0 False i
-    | otherwise -> rdInts bs i 0 0 0 False i
-
--- integer part; m = mantissa, nd = significant digits kept, any_ = digits seen
-rdInts :: B.ByteString -> Int -> Int -> Int -> Int -> Bool -> Int -> (# (# #) | Double# #)
-rdInts bs !j !m !nd !any_ !neg !s0
-  | c >= 48, c <= 57 =
-      if nd >= 18 then rdSlow bs neg s0
-      else let nd' = if m == 0 && c == 48 then nd else nd + 1
-           in rdInts bs (j + 1) (m * 10 + fromIntegral (c - 48)) nd' (any_ + 1) neg s0
-  | c == 46 = rdFrac bs (j + 1) m nd any_ 0 neg s0
-  | otherwise = rdExpo bs j m any_ 0 neg
-  where c = peek8 bs j
-
-rdFrac :: B.ByteString -> Int -> Int -> Int -> Int -> Int -> Bool -> Int -> (# (# #) | Double# #)
-rdFrac bs !j !m !nd !any_ !fd !neg !s0
-  | let c = peek8 bs j, c >= 48, c <= 57 =
-      if nd >= 18 then rdSlow bs neg s0
-      else let nd' = if m == 0 && c == 48 then nd else nd + 1
-           in rdFrac bs (j + 1) (m * 10 + fromIntegral (c - 48)) nd' (any_ + 1) (fd + 1) neg s0
-  | otherwise = rdExpo bs j m any_ fd neg
-
-rdExpo :: B.ByteString -> Int -> Int -> Int -> Int -> Bool -> (# (# #) | Double# #)
-rdExpo bs !j !m !any_ !fd !neg
-  | any_ == 0 = (# (# #) | #)
-  | let c = peek8 bs j, c == 101 || c == 69 || c == 100 || c == 68 =
-      let c1 = peek8 bs (j + 1)   -- -1 past the end: no digits follow, so no number
-      in if c1 == 45 then rdExpDigits bs (j + 2) 0 0 True m fd neg
-         else if c1 == 43 then rdExpDigits bs (j + 2) 0 0 False m fd neg
-         else rdExpDigits bs (j + 1) 0 0 False m fd neg
-  | otherwise = rdFin bs j m (negate fd) neg
-
-rdExpDigits :: B.ByteString -> Int -> Int -> Int -> Bool -> Int -> Int -> Bool -> (# (# #) | Double# #)
-rdExpDigits bs !k !e !cnt !eneg !m !fd !neg
-  | let c = peek8 bs k, c >= 48, c <= 57 = rdExpDigits bs (k + 1) (min 100000 (e * 10 + c - 48)) (cnt + 1) eneg m fd neg
-  | cnt == 0 = (# (# #) | #)
-  | otherwise = rdFin bs k m ((if eneg then negate e else e) - fd) neg
-
-rdFin :: B.ByteString -> Int -> Int -> Int -> Bool -> (# (# #) | Double# #)
-rdFin bs !j !m !e !neg
-  | not (blanks j) = (# (# #) | #)
-  | otherwise = case (if neg then negate (build m e) else build m e) of D# d -> (# | d #)
+readDoubleU bs = skip 0
   where
+    skip !i = case peek8 bs i of
+      c | c < 0 -> (# (# #) | #)
+        | isSp c -> skip (i + 1)
+        | otherwise -> number i
+    number !i = case LD.scanDouble (BU.unsafeDrop i bs) of
+      Nothing -> (# (# #) | #)
+      Just (D# d, k)
+        | blanks (i + k) -> (# | d #)
+        | let c = peek8 bs (i + k), c == 68 || c == 100 -> dExponent i (i + k)
+        | otherwise -> (# (# #) | #)
     blanks !i = let c = peek8 bs i in c < 0 || (isSp c && blanks (i + 1))
-
--- the mantissa has at most 18 digits, so it is a positive 'Int'
-build :: Int -> Int -> Double
-build m e
-  | m == 0 = 0
-  | m < 9007199254740992 && e >= 0 && e <= 22 = fromIntegral m * pow10 e
-  | m < 9007199254740992 && e < 0 && e >= -22 = fromIntegral m / pow10 (negate e)
-  | otherwise = buildSlow m e
-{-# INLINE build #-}
-
-buildSlow :: Int -> Int -> Double
-buildSlow m e = case eiselLemire (fromIntegral m) e of
-  Just d -> d
-  Nothing -> exact (toInteger m) e
-{-# NOINLINE buildSlow #-}
-
--- too many digits to hold in a Int: parse with Integer
-rdSlow :: B.ByteString -> Bool -> Int -> (# (# #) | Double# #)
-rdSlow bs neg s0 = case exactParse bs s0 of
-  Just d -> case (if neg then negate d else d) of D# x -> (# | x #)
-  Nothing -> (# (# #) | #)
-
-exact :: Integer -> Int -> Double
-exact m e
-  | e > 400 = 1 / 0
-  | e < -800 = 0
-  | e >= 0 = fromRational ((m * 10 ^ e) % 1)
-  | otherwise = fromRational (m % (10 ^ negate e))
-
--- | Slow, exact path for numbers with more digits than a 'Word64' holds.
--- Starts at the sign (if any) of the number.
-exactParse :: B.ByteString -> Int -> Maybe Double
-exactParse bs s0 = sign s0
-  where
-    n = B.length bs
-    sign i | i < n, at bs i == 45 || at bs i == 43 = ints (i + 1) 0 (0 :: Int)
-           | otherwise = ints i 0 0
-    ints !i !m !cnt
-      | i < n, let c = at bs i, c >= 48, c <= 57 = ints (i + 1) (m * 10 + toInteger (c - 48)) (cnt + 1)
-      | i < n, at bs i == 46 = frac (i + 1) m cnt 0
-      | otherwise = ex i m cnt 0
-    frac !i !m !cnt !fd
-      | i < n, let c = at bs i, c >= 48, c <= 57 = frac (i + 1) (m * 10 + toInteger (c - 48)) (cnt + 1) (fd + 1)
-      | otherwise = ex i m cnt fd
-    ex !i !m !cnt !fd
-      | cnt == 0 = Nothing
-      | i < n, let c = at bs i, c == 101 || c == 69 || c == 100 || c == 68 =
-          let (eneg, j) | i + 1 < n && at bs (i + 1) == 45 = (True, i + 2)
-                        | i + 1 < n && at bs (i + 1) == 43 = (False, i + 2)
-                        | otherwise = (False, i + 1)
-          in expo j eneg 0 (0 :: Int) m fd
-      | all (isSp . fromIntegral) (B.unpack (B.drop i bs)) = Just (exact m (negate fd))
-      | otherwise = Nothing
-    expo !k !eneg !e !cnt m fd
-      | k < n, let c = at bs k, c >= 48, c <= 57 = expo (k + 1) eneg (min 100000 (e * 10 + c - 48)) (cnt + 1) m fd
-      | cnt == 0 = Nothing
-      | all (isSp . fromIntegral) (B.unpack (B.drop k bs)) = Just (exact m ((if eneg then negate e else e) - fd))
-      | otherwise = Nothing
+    dExponent i j = case LD.scanDouble e of
+      Just (D# d, k) | blanks' k -> (# | d #)
+      _ -> (# (# #) | #)
+      where
+        e = B.concat [B.take (j - i) (B.drop i bs), "e", B.drop (j + 1) bs]
+        blanks' !m = let c = peek8 e m in c < 0 || (isSp c && blanks' (m + 1))
+{-# INLINE readDoubleU #-}

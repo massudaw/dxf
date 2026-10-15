@@ -9,7 +9,9 @@ module Main (main) where
 import Control.DeepSeq (rnf)
 import Control.Exception (evaluate)
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Internal as BI
+import DXF.Number (readDouble)
 import qualified Data.Set as Set
 import Foreign.ForeignPtr.Unsafe (unsafeForeignPtrToPtr)
 import Foreign.ForeignPtr (ForeignPtr)
@@ -21,7 +23,6 @@ import System.Environment (getArgs, lookupEnv)
 import System.IO (hPutStr, stderr)
 import MemBudget.Registry (report)
 import DXF
-import DXF.Number.Lemire (eiselLemire)
 
 timed :: String -> IO a -> IO a
 timed name act = do
@@ -104,7 +105,7 @@ body = do
       Right d -> mapM_ (\i -> evaluate (BL.length (documentBytes d) + i)) [1 .. 30]
       Left e -> ioError (userError (show e))
     ["init"] -> do   -- the one-time tables of the number code
-      _ <- timed "first eiselLemire (builds its table)" (evaluate (eiselLemire 17882 (-3)))
+      _ <- timed "first readDouble (linbuf's 5^q table)" (evaluate (readDouble (BC.pack "17.882e-1")))
       _ <- timed "first doubleText (builds its table)" (evaluate (BL.length (BB.toLazyByteString (doubleText 2.5))))
       pure ()
     ["dloop"] -> do   -- for a sampling profiler

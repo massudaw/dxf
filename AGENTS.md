@@ -139,3 +139,19 @@ project's, and the fixtures in `test/data/` are written by `tools/gen_all.sh` (e
 with the reference's Python) -- and no `__pycache__`, `*.pyc`, objects or profiles. A fixture a test needs
 has to come out of a generator that is committed: the `r12`/`r2007`/`r2018` `.txt.dxf` and `.bin.dxf`
 fixtures were made by hand from samples with `tools/genbin.py` and have no generator yet -- give them one.
+
+## Faster iteration (the user's word, 2026-10-15: "checks are getting too expensive, too many guardrails; iteration on changes should be much faster") -- this OVERRIDES any rule above about measuring and checking
+
+- **While working: the narrowest check that covers the change.** After a save, run the check group (or the one test)
+  for what you changed -- `test` with a scoped expression, portkit's selection where the project has it -- not the
+  whole check. Seconds, not a minute.
+- **The whole check once, before a commit** (or a few commits batched), not after every save.
+- **Measure only when the change can move speed or memory**: aimed at performance, or touching a hot path (a
+  parser's inner loop, a writer, the solver's step). A rename, a doc, a check, a refactor that compiles to the same
+  code, an error message: compile + scoped check + the same outputs is enough -- no benchmark.
+- **When you do measure**: instructions are the steady figure -- 1 to 3 runs, not 5 to 9; CPU and wall only when
+  instructions cannot say it. The 3% rule applies to performance changes, not to every change.
+- **Releases in batches**: tag when a few changes have gathered or someone is waiting for one, not after each. The
+  adopters' check only on adopters whose dependency changed; a canary only at a minor version.
+- **Kept**: the same outputs (portkit-same / the oracle) before a commit, the disk and memory floors, never loading
+  a half-built library -- they cost milliseconds and caught real damage.

@@ -647,3 +647,37 @@ collector), reached while the document is made -- before anything is printed.  B
 dead, and the 179 MB copy and its chunks fitted under that peak.  What the sink gives is that a document is
 written in constant room beyond itself (256 KB), whatever its size, and 3% less allocation.  Taken; the
 estimate of -358 MB does not hold here (reported to linstream with the figures).
+
+## What the dxf-write-bench peak is (2026-10-15)
+
+linstream's estimate (-358 MB from not holding the printed bytes) missed: writing through the sink saved
+19 MB of 2,036. Measured on `dxf-write-bench 1000000 R2010 FILE` (179 MB written), dd7469e:
+
+- **RTS** (`+RTS -s`): max residency 777 MB, total memory in use 2,004 MiB -- the copying collector's
+  factor of 2.6 over the live data (from-space grown by `-F2`, plus to-space). `-c` (compacting): 1,530 MiB
+  at +27% instructions; `--nonmoving-gc`: 1,990 MiB at 1.9x; `-F1.5`: 1,856 MiB, +13%; `-A64m`: more.
+  Tuning the collector does not remove it: the live data does.
+- **When** (`-hT -i0.25`, mutator seconds): the heap grows linearly while the drawing is built
+  (0 -> 690 MB at 1.7 s), peaks at 746 MB as the document is made and its header forces the handle
+  seed, and FALLS linearly to 0 while it is printed (2.1 -> 5.7 s): the printed document is freed in
+  parts already; neither the sink nor the document's printed bytes are what holds it.
+- **What**: the drawing -- 1,000,000 `Entity` values, each ~760 B (`census` of 10,000 built in the
+  session: 7.59 MB): its extended data 440 B (4 `Tag` 160, 3 one-value `ByteString`s 135 + their
+  `PlainPtr` 48, the list 96), `Common` 104, `Line` 72, `Entity` 40, `BGeo`/`GLine` 32, the spine 24.
+  At the peak, `toDocument`'s lazy numbering added 150 B a line more: `mapAccumL`'s tuple, a thunk and a
+  selector each, and forcing `$HANDSEED` walked the million counters at once -- 28 MB of stack
+  (127 MB in the profiled run) and 16 MB of black holes. `addEntities` was a lazy `foldl` too: a million
+  record updates chained, forced at the end.
+
+### Step 1: the numbering strict, the build a strict fold
+
+`toDocument` counts the seed by a strict fold and numbers each entity from a counter already
+evaluated (the entity itself made only when printed); `addEntities` is `foldl'`, `dwModel` strict.
+Same bytes (1,000,000 R2010, 100,000 R2010 and R12: cmp SAME), check 43/43.
+
+| `dxf-write-bench` | peak RSS | max residency | G instr | GC s |
+|---|---|---|---|---|
+| 1,000,000 R2010, dd7469e | 2,011 MB | 740-777 MB | 52.8-54.4 | 5.2 |
+| 1,000,000 R2010, step 1 | 1,574 MB | 702 MB | 44.0-45.9 | 3.1 |
+| 100,000 R2010 (least CPU of 5) | 229 -> 204 MB | | 5.77 -> 5.07 | |
+| 100,000 R12 | 211 -> 195 MB | | 5.53 -> 4.73 | |

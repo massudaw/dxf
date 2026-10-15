@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE BangPatterns, OverloadedStrings #-}
 -- | Writing a new drawing from nothing.
 --
 -- > let d = addLayer "WALLS" 5 "Continuous"
@@ -24,7 +24,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import qualified Data.Text as T
-import Data.List (mapAccumL)
+import Data.List (foldl', mapAccumL)
 import DXF.Build.Entities
 import DXF.Build.Skeleton
 import DXF.Document
@@ -46,7 +46,7 @@ import DXF.XData
 data Drawing = Drawing
   { dwVersion :: !Version, dwUnits :: !Int
   , dwLayers :: [Layer], dwLinetypes :: [Linetype], dwStyles :: [TextStyle], dwApps :: [B.ByteString]
-  , dwBlocks :: [(B.ByteString, V3, [Entity])], dwModel :: [Entity] }
+  , dwBlocks :: [(B.ByteString, V3, [Entity])], dwModel :: ![Entity] }  -- strict: no chain of updates
 
 -- | An empty drawing: layer @0@, linetype @Continuous@, text style @Standard@, no entities.
 newDrawing :: Version -> Drawing
@@ -87,10 +87,10 @@ addBlock n base es d = d { dwBlocks = (n, base, concatMap (adapt (dwVersion d)) 
 
 -- | An entity into model space.
 addEntity :: Entity -> Drawing -> Drawing
-addEntity e d = d { dwModel = reverse (adapt (dwVersion d) e) ++ dwModel d }
+addEntity e d = d { dwModel = foldl' (flip (:)) (dwModel d) (adapt (dwVersion d) e) }
 
 addEntities :: [Entity] -> Drawing -> Drawing
-addEntities es d = foldl (flip addEntity) d es
+addEntities es d = foldl' (flip addEntity) d es
 
 -- | Text as bytes in the drawing's encoding (UTF-8 from R2007, else the code page).
 drawingText :: Drawing -> T.Text -> B.ByteString
@@ -147,7 +147,12 @@ toDocument dw = Document defaultFmt [] (concat
           (n'', es') = mapAccumL (assign r12 rec) n' es
           (n3', en) = assign r12 rec n'' (Entity "ENDBLK" blankCommon { cLayer = Just "0" } (BBlk BlockEnd) [])
       in (n3', Block hd es' (Just en))
-    (seed, model') = mapAccumL (assign r12 hModelBR) n6 model
+    -- the seed by a strict count, the entities numbered as they are printed: no
+    -- chain of a million counters to force at once, nothing made before it is written
+    seed = foldl' (\n e -> if r12 then n else n + 1 + length (eKids e)) n6 model
+    model' = go n6 model
+      where go !_ [] = []
+            go !n (e : es) = snd (assign r12 hModelBR n e) : go (if r12 then n else n + 1 + length (eKids e)) es
     blockHead' name base = Entity "BLOCK" blankCommon { cLayer = Just "0" } (BBlk (BlockStart (BlockHead name 0 base (Just name) (Just "") Nothing))) []
     blocks = (if r12 then map (rename . strip') else id) (sBlocks std) ++ blocks'
     strip' b = b { blockHead = stripIds (blockHead b), blockEnd = fmap stripIds (blockEnd b) }

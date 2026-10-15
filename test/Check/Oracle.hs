@@ -33,7 +33,9 @@ ezdxf tmp = (oracle (\_ f _ -> Prints "/bin/sh" ["-c", "\"$0\" -I tools/compare.
   { oracleVersion = do
       ext <- sort . filter (".py" `isSuffixOfS`) <$> listDirectory ("tools" </> "oracle_ext")
       fs <- versionFiles ("tools/compare.py" : map (("tools" </> "oracle_ext") </>) ext)
-      v <- versionCommand python ["-I", "-c", "import ezdxf; print(ezdxf.__version__)"]
+      -- ezdxf's version is asked of Python only when python or the venv's lib changes stamp (portkit 0.4's
+      -- versionCommandBy, kept in .ghci-session/portkit-versions): a Python start (250-440 ms) off every run.
+      v <- versionCommandBy [".ref/venv/lib"] python ["-I", "-c", "import ezdxf; print(ezdxf.__version__)"]
       pure (fs ++ v)
   , oracleExitOk = const True }
   where isSuffixOfS s x = reverse s `isPrefixOf` reverse x

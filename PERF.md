@@ -777,3 +777,21 @@ The same output: `dxf-summary` of all 115 files (samples, fixtures, f001 text an
 `adopt-base/summary`; the round-3 prints of f001.bin, f001 and CPQ, and the round-1 prints of the three binary
 fixtures, byte for byte the same as 6ec177f's; the full check 44/44.  The text reader is not touched (its
 figures move by noise only).
+
+## portkit 0.4 (report bbe6942d): ezdxf's version without a Python start
+
+`Check.Oracle`'s ezdxf version is now `versionCommandBy [".ref/venv/lib"] python [...]`. The answer is kept in
+`.ghci-session/portkit-versions` and asked of Python again only when python or the venv's lib changes stamp.
+Pinned `portkit >= 0.4.1`, built against portkit's working tree at d4043a8 (v0.4.0 + one fix). On v0.4.0 itself
+(c639947), 3 or 4 of the 44 checks failed on every run: `oracleMany 6`'s threads appended to the one
+`.portkit-index` at once, and GHC's file lock refused them with "resource busy". This was reported (f85f6859),
+and portkit 0.4.1 (d4043a8) puts the append under one lock per process.
+
+| | before (0.3 path) | after |
+|---|---|---|
+| ezdxf version, first ask in a process | 334 ms (Python start) | 13.4 ms (stamps) |
+| `dxf-test full` (warm store, best of 3) | 14.48 s CPU, 93.71 G instr (on 0.4.0) | 9.84 s CPU, 93.41 G instr, peak 514 MB |
+
+The output is the same: 44 PASS in the session and from `dxf-test full`. This includes runs with the index
+deleted first, so every thread appends. `portkit-oracle gc -- dxf-test full` removed 424 per-path hash files
+left by 0.3 (1.7 MB): the store went from 2.3 MB to 560 KB. The disk had 16 GB free.

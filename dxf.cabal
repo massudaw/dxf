@@ -108,6 +108,7 @@ library
                     DXF.Entity.Block
                     DXF.XData
                     DXF.Build.Entities
+                    DXF.Build.Model
                     DXF.Build.Skeleton
                     DXF.Build
   build-depends:    base >=4.8 && <5, array, bytestring, containers, text, deepseq, linbuf, membudget

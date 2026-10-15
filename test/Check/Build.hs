@@ -94,6 +94,8 @@ firstDiff a b = take 3 [ "ours " ++ show x ++ " ezdxf " ++ show y | (x, y) <- ta
 checks :: [(String, IO Result)]
 checks =
   [ ("build: no problems in the drawings", perCase (\c -> drawingProblems (cDrawing c)))
+  , ("build: a generated model writes what a held one does", return
+      [ show v ++ ": the bytes differ" | v <- [R12, R2010], drawingBytes (manyMade v 500) /= drawingBytes (manyLines v 500) ])
   , ("build: written file parses and prints as it is", perCase $ \c -> case cParsed c of
       Left e -> ["does not parse: " ++ show e]
       Right d -> failIf (BL.toStrict (documentBytes d) /= cBytes c) "print . parse differs from the file")

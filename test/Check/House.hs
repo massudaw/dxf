@@ -2,7 +2,7 @@
 -- | A house plan made with the builder: walls as polylines on layers, door
 -- blocks inserted, texts, a hatch, a roof of 3D faces; every entity carries
 -- the id of its model element in extended data.
-module Check.House (housePlan, manyLines) where
+module Check.House (housePlan, manyLines, manyMade) where
 
 import qualified Data.ByteString.Char8 as BC
 import Data.Text (Text)
@@ -63,7 +63,16 @@ housePlan v = foldl (flip ($)) (newDrawing v)
 
 -- | n lines, each with extended data: the writing benchmark.
 manyLines :: Version -> Int -> Drawing
-manyLines v n = foldl (flip ($)) (newDrawing v) (addLayer "LINES" 3 "Continuous" : [ addEntity (e i) | i <- [1 .. n] ])
+manyLines v n = foldl (flip ($)) (newDrawing v) (addLayer "LINES" 3 "Continuous" : [ addEntity (manyLine i) | i <- [1 .. n] ])
+
+-- | The same drawing, its lines between the first ten and the last ten made, not held
+-- ('addGenerated'): the same bytes.
+manyMade :: Version -> Int -> Drawing
+manyMade v n = foldl (flip ($)) (newDrawing v) (addLayer "LINES" 3 "Continuous" : [ addEntity (manyLine i) | i <- [1 .. 10] ]
+  ++ [addGenerated (n - 20) (manyLine . (+ 11))] ++ [ addEntity (manyLine i) | i <- [n - 9 .. n] ])
+
+manyLine :: Int -> Entity
+manyLine i = e i
   where
     e i = withXData (XData "HOUSEID" [XStr (BC.pack ("line-" ++ show i)), XInt (i `mod` 32000), XReal (fromIntegral i / 8)])
             (onLayer "LINES" (line (V3 (fromIntegral i) 0 0) (V3 (fromIntegral i * 1.5) (fromIntegral (i `mod` 97) * 10.25) 0)))

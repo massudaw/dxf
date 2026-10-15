@@ -681,3 +681,41 @@ Same bytes (1,000,000 R2010, 100,000 R2010 and R12: cmp SAME), check 43/43.
 | 1,000,000 R2010, step 1 | 1,574 MB | 702 MB | 44.0-45.9 | 3.1 |
 | 100,000 R2010 (least CPU of 5) | 229 -> 204 MB | | 5.77 -> 5.07 | |
 | 100,000 R12 | 211 -> 195 MB | | 5.53 -> 4.73 | |
+
+### Tried: one buffer for an entity's extended data values -- not taken
+
+`xdataTags` made each value's bytes a slice of one buffer (`census`: 759 -> 632 B a line). The RTS
+said otherwise: max residency 698 -> 720 MB. The per-value buffers (pinned, `ByteString`) became
+garbage interleaved with the one kept, and pinned blocks are freed only when all in them die: the
+fragmentation ate the saving. Reverted.
+
+### Step 2: a model made, not held (`addGenerated`)
+
+The header is written first and needs the whole model ($EXTMIN/$EXTMAX, the layers and applications
+in use, $HANDSEED), so a list of entities is held from the first entity built to the last written.
+`DXF.Build.addGenerated n f` adds n entities made by a function of their index: every walk (the
+problems check, extents, layers, applications, seed, and the print itself) makes them again, one at
+a time (`DXF.Build.Model`). One trap, found by a retainer profile (`-hr`: all held by
+`drawingProblems`): GHC dropped the walk number of `modelOf k` (unused) and full laziness then floated
+`modelOf k v pieces` out of `\k -> ...` -- three walks one list, held from the first to the last.
+`DXF.Build` is compiled `-fno-full-laziness -fno-cse` (it is no hot loop). The bench's "to document"
+stage forces the sections, no longer the entities' spine (which held a numbered thunk a line until it
+was printed). `dxf-write-bench N VER gen FILE` uses it; a check holds `addGenerated` to `addEntity`
+byte for byte (R12, R2010, generated lines between held ones).
+
+| `dxf-write-bench` (1,000,000 lines) | peak RSS | max residency | G instr | GC s | what holds the peak |
+|---|---|---|---|---|---|
+| R2010, dd7469e | 2,011 MB | 777 MB | 52.8-54.4 | 5.2 | the drawing (760 B a line) + toDocument's thunks, x2.6 copying GC |
+| R2010, step 1 | 1,574 MB | 702 MB | 44.0-45.9 | 3.1 | the drawing, x2.2 |
+| R2010, step 2, held (`addEntities`) | 1,386 MB | 690 MB | 41.2 | 2.1 | the drawing, x2.0 |
+| R2010, step 2, `gen` | **17 MB** | under 1 MB | 39.4 | 0.05 | one line at a time |
+
+| 100,000 lines, least CPU of 5 | peak MB | G instr | vs dd7469e (229 MB, 5.48 G) |
+|---|---|---|---|
+| R2010 held | 188 | 4.55 | 0.83x instr |
+| R12 held | 170 | 4.37 | (R12 dd7469e: 211 MB, 5.53 G) |
+| R2010 gen | 17 | 4.01 | 0.73x |
+| R12 gen | 15 | 3.74 | |
+
+All outputs cmp SAME with dd7469e's. A generated model is made four to five times (the problems,
+the measures, the print) and is still the cheapest: building a line costs less than the GC of holding it.

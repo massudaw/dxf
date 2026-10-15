@@ -1,4 +1,8 @@
 {-# LANGUAGE BangPatterns, OverloadedStrings #-}
+-- two walks of a generated model ('modelOf') must stay two walks, not one list held from the
+-- first to the last: no CSE, and no full laziness (which floated @modelOf k v pieces@ out of
+-- @\k -> ...@ once GHC had dropped the unused @k@)
+{-# OPTIONS_GHC -fno-cse -fno-full-laziness #-}
 -- | Writing a new drawing from nothing.
 --
 -- > let d = addLayer "WALLS" 5 "Continuous"
@@ -13,7 +17,7 @@
 module DXF.Build
   ( Version (..), Drawing, newDrawing, drawingVersion
   , setUnits, addLayer, addLayerWith, addLinetype, addTextStyle, addAppId, addBlock
-  , addEntity, addEntities
+  , addEntity, addEntities, addGenerated
   , toDocument, drawingBytes, writeDrawing, drawingProblems, drawingText
   , Entity, eType, V2 (..), V3 (..)
   , module DXF.Build.Entities, module DXF.XData
@@ -26,6 +30,7 @@ import qualified Data.Set as S
 import qualified Data.Text as T
 import Data.List (foldl', mapAccumL)
 import DXF.Build.Entities
+import DXF.Build.Model
 import DXF.Build.Skeleton
 import DXF.Document
 import DXF.Encoding
@@ -46,7 +51,7 @@ import DXF.XData
 data Drawing = Drawing
   { dwVersion :: !Version, dwUnits :: !Int
   , dwLayers :: [Layer], dwLinetypes :: [Linetype], dwStyles :: [TextStyle], dwApps :: [B.ByteString]
-  , dwBlocks :: [(B.ByteString, V3, [Entity])], dwModel :: ![Entity] }  -- strict: no chain of updates
+  , dwBlocks :: [(B.ByteString, V3, [Entity])], dwModel :: ![Piece] }  -- strict: no chain of updates
 
 -- | An empty drawing: layer @0@, linetype @Continuous@, text style @Standard@, no entities.
 newDrawing :: Version -> Drawing
@@ -87,30 +92,20 @@ addBlock n base es d = d { dwBlocks = (n, base, concatMap (adapt (dwVersion d)) 
 
 -- | An entity into model space.
 addEntity :: Entity -> Drawing -> Drawing
-addEntity e d = d { dwModel = foldl' (flip (:)) (dwModel d) (adapt (dwVersion d) e) }
+addEntity e d = d { dwModel = addHeld (dwVersion d) e (dwModel d) }
 
 addEntities :: [Entity] -> Drawing -> Drawing
 addEntities es d = foldl' (flip addEntity) d es
 
+-- | @n@ entities into model space, the i-th (from 0) made by the function: not held
+-- by the drawing, but made again whenever it is walked (checked, measured, written)
+-- -- so a drawing of millions is written in the memory of one.
+addGenerated :: Int -> (Int -> Entity) -> Drawing -> Drawing
+addGenerated n f d = d { dwModel = Made n f : dwModel d }
+
 -- | Text as bytes in the drawing's encoding (UTF-8 from R2007, else the code page).
 drawingText :: Drawing -> T.Text -> B.ByteString
 drawingText d = encodeText (encodingOf (versionCode (dwVersion d)) Nothing)
-
--- | What R12 has no entity for becomes what it has: an LWPOLYLINE a POLYLINE,
--- an MTEXT one TEXT per line, a HATCH the outlines of its polygon paths.
-adapt :: Version -> Entity -> [Entity]
-adapt v e
-  | not (isR12 v) = [e]
-  | otherwise = case eBody e of
-      BPoly (PLwPolyline _) -> [lwToPolyline e]
-      BTxt (TMText m) ->
-        [ (text l (let V3 x y z = mtInsert m in V3 x (y - fromIntegral i * mtHeight m * 1.5) z) (mtHeight m)) { eCommon = eCommon e }
-        | (i, l) <- zip [0 :: Int ..] (lines' (mtextContent m)) ]
-      BHatch (BHatchE (Hatch (Just h) _)) ->
-        [ (polyline2d True [(p, maybe 0 id b) | (p, b) <- vs]) { eCommon = eCommon e } | PolyPath _ _ _ vs _ <- hPaths h ]
-      _ -> [e]
-  where
-    lines' s = let (a, b) = B.breakSubstring "\\P" s in a : if B.null b then [] else lines' (B.drop 2 b)
 
 -- | The drawing as a document.
 toDocument :: Drawing -> Document
@@ -121,15 +116,16 @@ toDocument dw = Document defaultFmt [] (concat
     v = dwVersion dw
     r12 = isR12 v
     std = standard ext
-    model = reverse (dwModel dw)
+    pieces = inOrder (dwModel dw)
+    model k = modelOf k v pieces
     userBlocks = reverse (dwBlocks dw)
     boxes = foldl (\m (n, b, es) -> maybe m (\bx -> M.insert n bx m) (boxOf (map (sub b) (concatMap (pointsOf m) es)))) M.empty userBlocks
       where sub (V3 a b c) (V3 x y z) = V3 (x - a) (y - b) (z - c)
-    ext = boxOf (concatMap (pointsOf boxes) model)
+    ext = boxOf (concatMap (pointsOf boxes) (model 1))
     -- names in use
-    usedLayers = S.toList (S.fromList [l | e <- allEntities, Just l <- [cLayer (eCommon e)]] `S.difference` S.fromList ("0" : map lyName (dwLayers dw)))
-    allEntities = model ++ [e | (_, _, es) <- userBlocks, e <- es]
-    apps = dedupe ("ACAD" : reverse (dwApps dw) ++ [a | e <- allEntities, Tag 1001 a <- cXData (eCommon e)])
+    usedLayers = S.toList (S.fromList [l | e <- allEntities 2, Just l <- [cLayer (eCommon e)]] `S.difference` S.fromList ("0" : map lyName (dwLayers dw)))
+    allEntities k = model k ++ [e | (_, _, es) <- userBlocks, e <- es]
+    apps = dedupe ("ACAD" : reverse (dwApps dw) ++ [a | e <- allEntities 3, Tag 1001 a <- cXData (eCommon e)])
     layers = layer0 : reverse (dwLayers dw) ++ [Layer n (Just 0) (Just 7) Nothing (Just "Continuous") Nothing Nothing Nothing Nothing Nothing | n <- usedLayers]
     layer0 = Layer "0" (Just 0) (Just 7) Nothing (Just "Continuous") Nothing Nothing Nothing Nothing Nothing
     lw l = if r12 then l { lyLineweight = Nothing } else l { lyLineweight = Just (maybe (-3) id (lyLineweight l)) }
@@ -149,8 +145,8 @@ toDocument dw = Document defaultFmt [] (concat
       in (n3', Block hd es' (Just en))
     -- the seed by a strict count, the entities numbered as they are printed: no
     -- chain of a million counters to force at once, nothing made before it is written
-    seed = foldl' (\n e -> if r12 then n else n + 1 + length (eKids e)) n6 model
-    model' = go n6 model
+    seed = foldl' (\n e -> if r12 then n else n + 1 + length (eKids e)) n6 (model 4)
+    model' = go n6 (model 5)
       where go !_ [] = []
             go !n (e : es) = snd (assign r12 hModelBR n e) : go (if r12 then n else n + 1 + length (eKids e)) es
     blockHead' name base = Entity "BLOCK" blankCommon { cLayer = Just "0" } (BBlk (BlockStart (BlockHead name 0 base (Just name) (Just "") Nothing))) []
@@ -222,11 +218,12 @@ writeDrawing p = writeDocument p . toDocument
 -- or text style that is not defined.
 drawingProblems :: Drawing -> [String]
 drawingProblems dw =
-  [ p | e <- es, x <- entityXData e, Just p <- [xdataProblem x] ]
-  ++ [ "INSERT of undefined block " ++ show (inName i) | e <- es, BPoly (PInsert i) <- [eBody e], inName i `S.notMember` blockNames ]
-  ++ [ "undefined linetype " ++ show l | l <- dedupeS [l | e <- es, Just l <- [cLinetype (eCommon e)], l `S.notMember` ltNames] ]
+  [ p | e <- es 1, x <- entityXData e, Just p <- [xdataProblem x] ]
+  ++ [ "INSERT of undefined block " ++ show (inName i) | e <- es 2, BPoly (PInsert i) <- [eBody e], inName i `S.notMember` blockNames ]
+  ++ [ "undefined linetype " ++ show l | l <- dedupeS [l | e <- es 3, Just l <- [cLinetype (eCommon e)], l `S.notMember` ltNames] ]
   where
-    es = reverse (dwModel dw) ++ [e | (_, _, b) <- dwBlocks dw, e <- b]
+    es k = modelOf k (dwVersion dw) pieces ++ [e | (_, _, b) <- dwBlocks dw, e <- b]
+    pieces = inOrder (dwModel dw)
     blockNames = S.fromList [n | (n, _, _) <- dwBlocks dw]
     ltNames = S.fromList (["ByLayer", "ByBlock", "Continuous"] ++ [ltName l | l <- dwLinetypes dw])
     dedupeS = S.toList . S.fromList

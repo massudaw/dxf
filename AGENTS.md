@@ -155,3 +155,15 @@ fixtures were made by hand from samples with `tools/genbin.py` and have no gener
   adopters' check only on adopters whose dependency changed; a canary only at a minor version.
 - **Kept**: the same outputs (portkit-same / the oracle) before a commit, the disk and memory floors, never loading
   a half-built library -- they cost milliseconds and caught real damage.
+
+## Releases batched (the user's word, 2026-10-16, from agent-des's fleet model: a release every change costs the fleet
+## 19% of its commits; releases twice as rare give +6%) -- this sharpens "Faster iteration"'s releases rule
+
+- **Tag only when someone is waiting for it** (a report or the overseer asks for a version, a user needs a fix) **or
+  when the unreleased changes are worth a release on their own** -- not after each change. Several fixes and features
+  go into one tag.
+- **One release run per batch**: the adopters' check and any canary once for the batch, not once per commit.
+  Between releases, commit and push as usual; adopters that pin a commit (`source-repository-package` / `../X-stable`)
+  can take a commit without a tag when they need it.
+- **Say what is unreleased** in your WAITING line (e.g. "3 changes since v0.1.4, none asked for") so the overseer can
+  call a release when one is due.

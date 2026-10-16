@@ -19,7 +19,8 @@ import Data.Int (Int16, Int32, Int64)
 import GHC.Float (castWord64ToDouble)
 import DXF.Number
 import DXF.Tag
-import DXF.Tag.BinText (hexText, intText, showDouble)
+import DXF.Tag.BinText (intText, showDouble)
+import qualified LinBuf.Hex as LH
 
 binarySignature :: B.ByteString
 binarySignature = BC.pack "AutoCAD Binary DXF\r\n\x1a\0"
@@ -55,7 +56,7 @@ scanBinary bs = (Fmt True False False r12, go 22)
     -- A value's text is made from its number ('DXF.Tag.BinText'); a string is a slice of the input.
       KBin -> need j 1 `seq`
         let !len = u j in need (j + 1) len `seq`
-           emit (Tag c (hexText (sliceAt bs (j + 1) len))) (j + 1 + len)
+           emit (Tag c (LH.toHex (sliceAt bs (j + 1) len))) (j + 1 + len)
       KInt16 -> need j 2 `seq` emit (Tag c (intText (fromIntegral (fromIntegral (index16le bs j) :: Int16)))) (j + 2)
       KInt32 -> need j 4 `seq` emit (Tag c (intText (fromIntegral (fromIntegral (index32le bs j) :: Int32)))) (j + 4)
       KInt64 -> need j 8 `seq` emit (Tag c (intText (fromIntegral (fromIntegral (index64le bs j) :: Int64)))) (j + 8)
@@ -66,8 +67,12 @@ scanBinary bs = (Fmt True False False r12, go 22)
         Just k -> emit (Tag c (sliceAt bs j k)) (j + k + 1)
     emit !t !k = t : go k
 
+-- | Hex text as its bytes.  linbuf's 'LH.unhex' is strict (@Left@ at a bad digit or an odd count); a file that
+-- has one reads the bad digit as 0 and drops an odd last digit, as before.
 unhex :: B.ByteString -> B.ByteString
-unhex s = fst (B.unfoldrN (B.length s `div` 2) step 0)
+unhex s = case LH.unhex s of
+  Right d -> d
+  Left _ -> fst (B.unfoldrN (B.length s `div` 2) step 0)
   where
     step i = Just (nib (B.index s i) `shiftL` 4 .|. nib (B.index s (i + 1)), i + 2)
     nib c | c >= 48 && c <= 57 = c - 48

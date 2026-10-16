@@ -821,3 +821,12 @@ Parse alone and round 1: the same total memory (f001 71-74, CPQ and condo 11 MiB
 Same output: 44 edge strings (blanks, signs, `.5`, `5.`, `1e`, `1D5`, `1e400`, subnormals, 23-38 digits) read as
 before; prints of 115 samples and fixtures byte-identical to 10dd8bd's; `dxf-write-bench 100000` R12 and R2010, held
 and gen, byte-identical; check 44.
+
+## Hex on LinBuf.Hex (linbuf v0.1.7, e13567e; overseer's survey of shared routines)
+
+`Skeleton.hex` (handles) is `F.hexWord` in a `runPinned` buffer, `BinText.hexText` is gone for `LinBuf.Hex.toHex`,
+`Binary.unhex` takes `LH.unhex` and keeps its old loop for the `Left` (a bad digit reads as 0, an odd last digit is
+dropped: unhex is strict), `Number.readHex` is `unhex` of the digits with a leading 0 when odd. `hex` agrees with
+the old recursion on 0..70000 and the 32/40/62-bit edges; `readHex` on 10 cases (empty, bad digit, 15 digits, odd).
+Check 44/44; `dxf-write-bench 200000 R2010` and `dxf-bench f001.bin round 1` write the same bytes as 63d8d07's
+binaries, 0.99x and 0.97x instructions, peak 1.00x and 0.98x.

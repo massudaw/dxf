@@ -10,6 +10,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Unsafe as BU
 import LinBuf.Index (peek8)
 import qualified LinBuf.Decimal as LD
+import qualified LinBuf.Hex as LH
 import Data.Bits (shiftL, (.|.))
 import GHC.Exts (Double (D#), Double#)
 
@@ -41,18 +42,14 @@ readInt bs = start 0
         | isSp c -> rest (i + 1) v
         | otherwise -> truncate <$> readDouble bs
 
--- | Hexadecimal (handles): upper or lower case, no prefix.
+-- | Hexadecimal (handles): upper or lower case, no prefix, 1 to 15 digits.  linbuf's 'unhex' reads the bytes of
+-- an even number of digits; an odd one gets a leading 0.
 readHex :: B.ByteString -> Maybe Int
 readHex bs
   | B.null bs || B.length bs > 15 = Nothing
-  | otherwise = B.foldl' step (Just 0) bs
-  where
-    step Nothing _ = Nothing
-    step (Just a) c
-      | c >= 48 && c <= 57 = Just (a `shiftL` 4 .|. fromIntegral (c - 48))
-      | c >= 65 && c <= 70 = Just (a `shiftL` 4 .|. fromIntegral (c - 55))
-      | c >= 97 && c <= 102 = Just (a `shiftL` 4 .|. fromIntegral (c - 87))
-      | otherwise = Nothing
+  | otherwise = case LH.unhex (if odd (B.length bs) then B.cons 48 bs else bs) of
+      Left _ -> Nothing
+      Right bytes -> Just (B.foldl' (\a w -> a `shiftL` 8 .|. fromIntegral w) 0 bytes)
 
 -- | A floating point number: sign, digits, optional fraction, optional
 -- exponent, blanks around.  'Nothing' when the bytes are not a number.

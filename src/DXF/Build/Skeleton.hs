@@ -23,6 +23,8 @@ import DXF.Header
 import DXF.Tag
 import DXF.Vec
 import DXF.XData (intBytes, realBytes)
+import qualified LinBuf.Fixed as F
+import LinBuf.Write (freezeBytes, putBounded, runPinned)
 
 -- | The versions the builder writes.  R12 has no handles, no layouts and no
 -- OBJECTS; the others are alike but for the code page and the number.
@@ -37,10 +39,9 @@ versionCode v = case v of
 isR12 :: Version -> Bool
 isR12 = (== R12)
 
--- | Handle text: upper case hexadecimal.
+-- | Handle text: upper case hexadecimal, as few digits as it needs (handles are not negative).
 hex :: Int -> B.ByteString
-hex n = if n < 16 then B.singleton (d n) else hex (n `div` 16) `B.snoc` d (n `mod` 16)
-  where d k = if k < 10 then fromIntegral (48 + k) else fromIntegral (55 + k)
+hex n = runPinned 16 (\b -> freezeBytes (putBounded (F.hexWord (fromIntegral n)) b))
 
 -- | The handle of a table by its name.
 tableHandle :: B.ByteString -> B.ByteString

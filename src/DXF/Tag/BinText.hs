@@ -7,7 +7,7 @@
 -- decimal; a double's shortest digits (linbuf's 'shortestDigits'), plain from 0.1 up to 10^7 (@0.25@,
 -- @420.0@), else with an exponent (@1.0e-2@, @1.0e20@).  Before, each value went through a 'BB.Builder' run
 -- to a lazy chunk of 4 KB and its copy -- 570 bytes allocated for each byte read (PERF.md).
-module DXF.Tag.BinText (intText, showDouble, hexText) where
+module DXF.Tag.BinText (intText, showDouble) where
 
 import Data.Bits (shiftR, (.&.))
 import qualified Data.ByteString as B
@@ -83,15 +83,3 @@ pad k w = putBounded (wordDecPadded k (fromIntegral w))
 
 p10 :: Int -> Word64
 p10 k = 10 ^ k
-
--- | Binary data in hex, two capitals a byte.
-hexText :: B.ByteString -> B.ByteString
-hexText s = runPinned (2 * n) (\b -> freezeBytes (go 0 b))
-  where
-    !n = B.length s
-    go :: Int -> Buf t %1 -> Buf t
-    go !i b
-      | i >= n = b
-      | otherwise = let !w = index8 s i in go (i + 1) (u8 (digit (w .&. 15)) (u8 (digit (w `shiftR` 4)) b))
-    digit :: Word8 -> Word8
-    digit d = if d < 10 then 48 + d else 55 + d

@@ -4,6 +4,7 @@ packages: .
           ../portkit
           ../linsys
           ../linstream
+          ../geometry-stable
 
 -- the project's own packages: objects a ghci-session session can take as they are (its seed_from_build)
 program-options

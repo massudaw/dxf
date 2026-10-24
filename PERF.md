@@ -830,3 +830,9 @@ dropped: unhex is strict), `Number.readHex` is `unhex` of the digits with a lead
 the old recursion on 0..70000 and the 32/40/62-bit edges; `readHex` on 10 cases (empty, bad digit, 15 digits, odd).
 Check 44/44; `dxf-write-bench 200000 R2010` and `dxf-bench f001.bin round 1` write the same bytes as 63d8d07's
 binaries, 0.99x and 0.97x instructions, peak 1.00x and 0.98x.
+
+## DXF.Vec on Geometry.Core.Vec (geometry-core 0.2.2.0, 9479e39; work dff523a5)
+
+`V2`/`V3` are geometry-core's types, re-exported by `DXF.Vec` (the 22 importers unchanged); the `NFData` instances stay in `DXF.Vec`
+(`rnf` is `()`: the fields are strict and unpacked). `../geometry-stable` is in `cabal.project`. Against the commit before (110d9fb):
+f001 round 3 7.32 G instr both, peak 137 MB both; write 200k R2010 8.69 G both, 341 MB both; outputs identical (cmp); check 44/44.

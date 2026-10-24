@@ -1,17 +1,16 @@
 -- | Points and vectors: strict, unboxed, no dependencies.
-{-# LANGUAGE DeriveGeneric, DeriveAnyClass #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 module DXF.Vec
   ( V2 (..), V3 (..), v3zero, v2zero, toV3, xy
   ) where
 
-import Control.DeepSeq (NFData)
-import GHC.Generics (Generic)
+import Control.DeepSeq (NFData (..))
+import Geometry.Core.Vec (V2 (..), V3 (..))
 
-data V2 = V2 {-# UNPACK #-} !Double {-# UNPACK #-} !Double
-  deriving (Eq, Ord, Show, Generic, NFData)
+-- | The types are geometry-core's; the instances stay here (the fields are strict and unpacked, so there is nothing to force).
+instance NFData V2 where rnf (V2 _ _) = ()
 
-data V3 = V3 {-# UNPACK #-} !Double {-# UNPACK #-} !Double {-# UNPACK #-} !Double
-  deriving (Eq, Ord, Show, Generic, NFData)
+instance NFData V3 where rnf (V3 _ _ _) = ()
 
 v2zero :: V2
 v2zero = V2 0 0

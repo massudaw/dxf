@@ -17,7 +17,9 @@ program-options
 
 -- build-sharing step 3: the libraries below come from the store at the commits of tools/snapshot/ (undo: git revert)
 import: ../ghci-session/tools/snapshot/opt/linbuf.project
+import: ../ghci-session/tools/snapshot/opt/pkgrepo.project
 import: ../ghci-session/tools/snapshot/pkgrepo.project
+import: ../ghci-session/tools/snapshot/constraints.project
 import: ../ghci-session/tools/snapshot/opt/membudget.project
 import: ../ghci-session/tools/snapshot/opt/portkit.project
 import: ../ghci-session/tools/snapshot/opt/linsys.project

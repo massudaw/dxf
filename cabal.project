@@ -1,5 +1,4 @@
 packages: .
-          ../geometry-stable
 
 
 -- >>> shared profile (ghci-session tools/shared-profile.project; build-sharing step 2b, 2026-11-06)
@@ -22,3 +21,4 @@ import: ../ghci-session/tools/snapshot/membudget.project
 import: ../ghci-session/tools/snapshot/portkit.project
 import: ../ghci-session/tools/snapshot/linsys.project
 import: ../ghci-session/tools/snapshot/linstream.project
+import: ../ghci-session/tools/snapshot/geometry.project

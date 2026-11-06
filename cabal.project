@@ -16,9 +16,10 @@ program-options
 -- <<< shared profile
 
 -- build-sharing step 3: the libraries below come from the store at the commits of tools/snapshot/ (undo: git revert)
-import: ../ghci-session/tools/snapshot/linbuf.project
-import: ../ghci-session/tools/snapshot/membudget.project
-import: ../ghci-session/tools/snapshot/portkit.project
-import: ../ghci-session/tools/snapshot/linsys.project
-import: ../ghci-session/tools/snapshot/linstream.project
-import: ../ghci-session/tools/snapshot/geometry.project
+import: ../ghci-session/tools/snapshot/opt/linbuf.project
+import: ../ghci-session/tools/snapshot/pkgrepo.project
+import: ../ghci-session/tools/snapshot/opt/membudget.project
+import: ../ghci-session/tools/snapshot/opt/portkit.project
+import: ../ghci-session/tools/snapshot/opt/linsys.project
+import: ../ghci-session/tools/snapshot/opt/linstream.project
+import: ../ghci-session/tools/snapshot/opt/geometry.project

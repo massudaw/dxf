@@ -25,3 +25,8 @@ import: ../ghci-session/tools/snapshot/opt/portkit.project
 import: ../ghci-session/tools/snapshot/opt/linsys.project
 import: ../ghci-session/tools/snapshot/opt/linstream.project
 import: ../ghci-session/tools/snapshot/opt/geometry.project
+
+-- >>> hie (ghci-session tools/shared-profile.sh; TASK-5b24f68e): .hie files of the local packages, for name-level selection
+package dxf
+  ghc-options: -fwrite-ide-info
+-- <<< hie

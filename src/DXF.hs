@@ -1,24 +1,34 @@
-module DXF (
-  addEntity,
-  module DXF.Types ,
-  module DXF.Writer ,
-  module DXF.Parser ) where
+module DXF
+  ( module DXF.Vec
+  , module DXF.Tag
+  , module DXF.Tag.Scan
+  , module DXF.Tag.Out
+  , module DXF.Encoding
+  , module DXF.Number
+  , module DXF.Entity
+  , module DXF.Json
+  , module DXF.Header
+  , module DXF.Classes
+  , module DXF.Tables
+  , module DXF.Document
+  , module DXF.Parse
+  , module DXF.Print
+  , module DXF.Summary
+  ) where
 
-import DXF.Writer
-import DXF.Parser
-import DXF.Types
+import DXF.Header
+import DXF.Classes
+import DXF.Tables
+import DXF.Document
+import DXF.Parse
+import DXF.Print
+import DXF.Summary
 
-
-idDXF = do
-  Right v <- readDXF "PATH.DXF"
-  print (entities v)
-  writeDXF "PATHW.DXF" v
-
-incSeed (Header m s) = (s,Header m (s+1))
-
-addEntity en dxf = dxf { header = nh , entities = e:(entities  dxf)}
-  where e = en s
-        (s,nh ) = incSeed (header dxf)
-
-
-
+import DXF.Vec
+import DXF.Tag
+import DXF.Tag.Scan
+import DXF.Tag.Out
+import DXF.Encoding
+import DXF.Number
+import DXF.Entity
+import DXF.Json

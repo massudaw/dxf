@@ -1,0 +1,32 @@
+packages: .
+
+
+-- >>> shared profile (ghci-session tools/shared-profile.project; build-sharing step 2b, 2026-11-06)
+-- One build profile for every package that ends up in a shared store: the cabal store hash of a unit moves with
+-- -fobject-determinism, optimization, -rtsopts and -fspecialise-aggressively (not with -W* or -j), so a consumer
+-- built with this block takes a library another consumer built, 0 units (docs/shared-store-audit.md section 3).
+-- Dynamic-only is all or nothing: a vanilla consumer cannot load a dynamic-only library. Per-project flags go on
+-- that project's own packages (`package NAME`), never up here. Moved by tools/shared-profile.sh, not by hand.
+shared: True
+library-vanilla: False
+executable-dynamic: True
+optimization: 2
+program-options
+  ghc-options: -fobject-determinism
+-- <<< shared profile
+
+-- build-sharing step 3: the libraries below come from the store at the commits of tools/snapshot/ (undo: git revert)
+import: ../ghci-session/tools/snapshot/opt/linbuf.project
+import: ../ghci-session/tools/snapshot/pkgrepo.project
+import: ../ghci-session/tools/snapshot/pkgrepo.project
+import: ../ghci-session/tools/snapshot/constraints.project
+import: ../ghci-session/tools/snapshot/opt/membudget.project
+import: ../ghci-session/tools/snapshot/opt/portkit.project
+import: ../ghci-session/tools/snapshot/opt/linsys.project
+import: ../ghci-session/tools/snapshot/opt/linstream.project
+import: ../ghci-session/tools/snapshot/opt/geometry.project
+
+-- >>> hie (ghci-session tools/shared-profile.sh; TASK-5b24f68e): .hie files of the local packages, for name-level selection
+package dxf
+  ghc-options: -fwrite-ide-info
+-- <<< hie
